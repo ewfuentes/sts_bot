@@ -298,11 +298,16 @@ def _translate_event(screen_state, game):
     actions = []
     for opt in options:
         if not opt.get("disabled", False):
-            actions.append({
+            action = {
                 "type": action_type,
                 "label": opt["label"],
                 "choice_index": opt["choice_index"],
-            })
+            }
+            if "reward_type" in opt:
+                action["reward_type"] = opt["reward_type"]
+            if "drawback" in opt:
+                action["drawback"] = opt["drawback"]
+            actions.append(action)
 
     screen = {
         "type": "neow" if is_neow else "event",
@@ -312,6 +317,8 @@ def _translate_event(screen_state, game):
             {
                 "label": opt["label"],
                 "disabled": opt.get("disabled", False),
+                **({"reward_type": opt["reward_type"]} if "reward_type" in opt else {}),
+                **({"drawback": opt["drawback"]} if "drawback" in opt else {}),
             }
             for opt in options
         ],
