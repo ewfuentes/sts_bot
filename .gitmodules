@@ -1,0 +1,4 @@
+[submodule "CommunicationMod"]
+	path = CommunicationMod
+	url = git@github.com:ewfuentes/CommunicationMod.git
+	branch = board-game-support

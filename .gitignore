@@ -1,0 +1,18 @@
+# Java
+CommunicationMod/target/
+
+# Python
+glue/.venv/
+glue/__pycache__/
+*.pyc
+
+# Rust
+simulator/target/
+tui/target/
+
+# Logs
+glue/commod_bridge.log
+glue/tui_debug.log
+
+# OS
+.DS_Store
