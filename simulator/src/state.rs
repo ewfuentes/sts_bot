@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::action::Action;
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
-use crate::screen::{EventOption, Screen};
+use crate::screen::{EventOption, Screen, ShopCard, ShopPotion, ShopRelic};
 use crate::types::{Card, Potion, Relic};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -413,11 +413,15 @@ impl GameState {
                         let purpose = purpose.clone();
                         match purpose.as_str() {
                             "purge" => {
-                                self.deck.retain(|c| c != card);
+                                if let Some(idx) = self.deck.iter().position(|c| c == card) {
+                                    self.deck.remove(idx);
+                                }
                                 self.screen = Screen::Complete;
                             }
                             "transform" => {
-                                self.deck.retain(|c| c != card);
+                                if let Some(idx) = self.deck.iter().position(|c| c == card) {
+                                    self.deck.remove(idx);
+                                }
                                 // TODO: add a random replacement card (needs card pool)
                                 self.screen = Screen::Complete;
                             }
@@ -495,6 +499,85 @@ impl GameState {
                     cards,
                 };
             }
+            Action::BuyCard { card, price, .. } => {
+                if self.gold >= *price {
+                    self.gold -= price;
+                    self.deck.push(card.clone());
+                    // Remove card from shop
+                    if let Screen::Shop { cards, .. } = &mut self.screen {
+                        cards.retain(|c| c.card != *card);
+                    }
+                }
+            }
+            Action::BuyRelic { relic, price, .. } => {
+                if self.gold >= *price {
+                    self.gold -= price;
+                    self.relics.push(Relic {
+                        id: relic.clone(),
+                        name: relic.clone(),
+                        counter: -1,
+                        clickable: false,
+                        pulsing: false,
+                    });
+                    if let Screen::Shop { relics, .. } = &mut self.screen {
+                        relics.retain(|r| r.id != *relic);
+                    }
+                }
+            }
+            Action::BuyPotion { potion, price, .. } => {
+                if self.gold >= *price {
+                    if let Some(slot) = self.potions.iter_mut().find(|p| p.is_none()) {
+                        self.gold -= price;
+                        *slot = Some(Potion {
+                            id: potion.clone(),
+                            name: potion.clone(),
+                        });
+                    }
+                    if let Screen::Shop { potions, .. } = &mut self.screen {
+                        potions.retain(|p| p.id != *potion);
+                    }
+                }
+            }
+            Action::Purge { price, .. } => {
+                if self.gold >= *price {
+                    self.gold -= price;
+                    let cards = self.purgeable_cards();
+                    self.screen = Screen::Grid {
+                        purpose: "purge".to_string(),
+                        cards,
+                    };
+                }
+            }
+            Action::LeaveShop => {
+                self.screen = Screen::Complete;
+            }
+            Action::PickBossRelic { choice_index, .. } => {
+                if let Screen::BossRelic { relics } = &self.screen {
+                    let idx = *choice_index as usize;
+                    if idx < relics.len() {
+                        let relic = relics[idx].clone();
+                        self.relics.push(relic);
+                        // Remove all offered boss relics from the pool
+                        if let Some(pools) = &mut self.reward_pools {
+                            for r in relics {
+                                pools.boss_relic_deck.remove(&r.id);
+                            }
+                        }
+                        self.screen = Screen::Complete;
+                    }
+                }
+            }
+            Action::SkipBossRelic => {
+                // Remove all offered boss relics from the pool even if skipped
+                if let Screen::BossRelic { relics } = &self.screen {
+                    if let Some(pools) = &mut self.reward_pools {
+                        for r in relics {
+                            pools.boss_relic_deck.remove(&r.id);
+                        }
+                    }
+                }
+                self.screen = Screen::Complete;
+            }
             Action::TravelTo { .. } => {
                 // TODO: advance floor, enter room
             }
@@ -544,6 +627,11 @@ impl GameState {
             Screen::CombatRewards { rewards } => combat_reward_actions(rewards),
             Screen::Grid { cards, .. } => grid_actions(cards),
             Screen::Rest { options } => rest_actions(options),
+            Screen::Shop { cards, relics, potions, purge_cost } => {
+                let has_potion_slot = self.potions.iter().any(|p| p.is_none());
+                shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
+            }
+            Screen::BossRelic { relics } => boss_relic_actions(relics),
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
@@ -627,6 +715,74 @@ fn rest_actions(options: &[String]) -> Vec<Action> {
             _ => Action::Rest { choice_index: i as u8 },
         })
         .collect()
+}
+
+fn shop_actions(
+    cards: &[ShopCard],
+    relics: &[ShopRelic],
+    potions: &[ShopPotion],
+    purge_cost: Option<u16>,
+    gold: u16,
+    has_potion_slot: bool,
+) -> Vec<Action> {
+    let mut actions = Vec::new();
+    for (i, sc) in cards.iter().enumerate() {
+        if let Some(price) = sc.price {
+            if gold >= price {
+                actions.push(Action::BuyCard {
+                    card: sc.card.clone(),
+                    price,
+                    choice_index: i as u8,
+                });
+            }
+        }
+    }
+    for (i, sr) in relics.iter().enumerate() {
+        if let Some(price) = sr.price {
+            if gold >= price {
+                actions.push(Action::BuyRelic {
+                    relic: sr.id.clone(),
+                    price,
+                    choice_index: (cards.len() + i) as u8,
+                });
+            }
+        }
+    }
+    if has_potion_slot {
+        for (i, sp) in potions.iter().enumerate() {
+            if let Some(price) = sp.price {
+                if gold >= price {
+                    actions.push(Action::BuyPotion {
+                        potion: sp.id.clone(),
+                        price,
+                        choice_index: (cards.len() + relics.len() + i) as u8,
+                    });
+                }
+            }
+        }
+    }
+    if let Some(price) = purge_cost {
+        if gold >= price {
+            actions.push(Action::Purge {
+                price,
+                choice_index: (cards.len() + relics.len() + potions.len()) as u8,
+            });
+        }
+    }
+    actions.push(Action::LeaveShop);
+    actions
+}
+
+fn boss_relic_actions(relics: &[crate::types::Relic]) -> Vec<Action> {
+    let mut actions: Vec<Action> = relics
+        .iter()
+        .enumerate()
+        .map(|(i, _)| Action::PickBossRelic {
+            choice_index: i as u8,
+        })
+        .collect();
+    actions.push(Action::SkipBossRelic);
+    actions
 }
 
 fn grid_actions(cards: &[Card]) -> Vec<Action> {
