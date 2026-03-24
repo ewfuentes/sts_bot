@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::action::Action;
+use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
 use crate::screen::{EventOption, Screen};
 use crate::types::{Card, Potion, Relic};
@@ -27,57 +28,200 @@ pub struct GameState {
 /// All the draw-from-top pools used in the Board Game mod.
 #[derive(Debug, Clone)]
 pub struct RewardPools {
-    pub card_deck: RewardDeck,
-    pub rare_deck: RewardDeck,
-    pub relic_deck: Vec<String>,
-    pub boss_relic_deck: Vec<String>,
-    pub potion_deck: RewardDeck,
-    pub curse_deck: RewardDeck,
-    pub colorless_deck: RewardDeck,
+    pub card_deck: Pool,
+    pub rare_deck: Pool,
+    pub relic_deck: Pool,
+    pub boss_relic_deck: Pool,
+    pub potion_deck: Pool,
+    pub curse_deck: Pool,
+    pub colorless_deck: Pool,
 }
 
 impl RewardPools {
+    /// Create fully-ordered pools from a seed (for offline simulation from scratch).
     pub fn new(character: Character, seed: u64) -> Self {
+        let rd = RewardDeck::new(character, seed);
+        let rare = reward_deck::build_rare_deck(character, seed.wrapping_add(1));
+        let relic = reward_deck::build_relic_deck(seed.wrapping_add(2));
+        let boss_relic = reward_deck::build_boss_relic_deck(seed.wrapping_add(3));
+        let potion = reward_deck::build_potion_deck(seed.wrapping_add(4));
+        let curse = reward_deck::build_curse_deck(seed.wrapping_add(5));
+        let colorless = reward_deck::build_colorless_deck(seed.wrapping_add(6));
+
         RewardPools {
-            card_deck: RewardDeck::new(character, seed),
-            rare_deck: reward_deck::build_rare_deck(character, seed.wrapping_add(1)),
-            relic_deck: reward_deck::build_relic_deck(seed.wrapping_add(2)),
-            boss_relic_deck: reward_deck::build_boss_relic_deck(seed.wrapping_add(3)),
-            potion_deck: reward_deck::build_potion_deck(seed.wrapping_add(4)),
-            curse_deck: reward_deck::build_curse_deck(seed.wrapping_add(5)),
-            colorless_deck: reward_deck::build_colorless_deck(seed.wrapping_add(6)),
+            card_deck: Pool::ordered(rd.cards),
+            rare_deck: Pool::ordered(rare.cards),
+            relic_deck: Pool::ordered(relic),
+            boss_relic_deck: Pool::ordered(boss_relic),
+            potion_deck: Pool::ordered(potion.cards),
+            curse_deck: Pool::ordered(curse.cards),
+            colorless_deck: Pool::ordered(colorless.cards),
         }
     }
 
+    /// Create unordered pools by taking the full pool for a character
+    /// and removing items already observed in the game state.
+    pub fn from_observed(
+        character: Character,
+        deck_card_ids: &[String],
+        relic_ids: &[String],
+        potion_ids: &[String],
+    ) -> Self {
+        // Build full card pool
+        let rd = RewardDeck::new(character, 0); // seed doesn't matter, we discard order
+        let mut card_items = rd.cards;
+        for id in deck_card_ids {
+            if let Some(idx) = card_items.iter().position(|c| c == id) {
+                card_items.remove(idx);
+            }
+        }
+
+        // Rare deck
+        let rare = reward_deck::build_rare_deck(character, 0);
+        let mut rare_items = rare.cards;
+        for id in deck_card_ids {
+            if let Some(idx) = rare_items.iter().position(|c| c == id) {
+                rare_items.remove(idx);
+            }
+        }
+
+        // Relic deck — remove relics already obtained
+        let relic_all = reward_deck::build_relic_deck(0);
+        let relic_items: Vec<String> = relic_all
+            .into_iter()
+            .filter(|r| !relic_ids.contains(r))
+            .collect();
+
+        // Boss relic deck — remove obtained
+        let boss_all = reward_deck::build_boss_relic_deck(0);
+        let boss_items: Vec<String> = boss_all
+            .into_iter()
+            .filter(|r| !relic_ids.contains(r))
+            .collect();
+
+        // Potion deck
+        let potion_all = reward_deck::build_potion_deck(0);
+        let potion_items: Vec<String> = potion_all
+            .cards
+            .into_iter()
+            .filter(|p| !potion_ids.contains(p))
+            .collect();
+
+        // Curse deck — remove curses already in player's deck
+        let curse_all = reward_deck::build_curse_deck(0);
+        let mut curse_items = curse_all.cards;
+        for id in deck_card_ids {
+            if let Some(idx) = curse_items.iter().position(|c| c == id) {
+                curse_items.remove(idx);
+            }
+        }
+
+        // Colorless deck — remove obtained colorless cards
+        let colorless_all = reward_deck::build_colorless_deck(0);
+        let mut colorless_items = colorless_all.cards;
+        for id in deck_card_ids {
+            if let Some(idx) = colorless_items.iter().position(|c| c == id) {
+                colorless_items.remove(idx);
+            }
+        }
+
+        RewardPools {
+            card_deck: Pool::unordered(card_items),
+            rare_deck: Pool::unordered(rare_items),
+            relic_deck: Pool::unordered(relic_items),
+            boss_relic_deck: Pool::unordered(boss_items),
+            potion_deck: Pool::unordered(potion_items),
+            curse_deck: Pool::unordered(curse_items),
+            colorless_deck: Pool::unordered(colorless_items),
+        }
+    }
+
+    /// Determinize all pools by shuffling with the provided function.
+    pub fn determinize(&mut self, shuffle_fn: &mut dyn FnMut(&mut Vec<String>)) {
+        self.card_deck.determinize(shuffle_fn);
+        self.rare_deck.determinize(shuffle_fn);
+        self.relic_deck.determinize(shuffle_fn);
+        self.boss_relic_deck.determinize(shuffle_fn);
+        self.potion_deck.determinize(shuffle_fn);
+        self.curse_deck.determinize(shuffle_fn);
+        self.colorless_deck.determinize(shuffle_fn);
+    }
+
     /// Draw N cards from the reward deck for a card reward screen.
+    /// Returns empty vec if pools are unordered.
     pub fn draw_card_reward(&mut self, count: usize) -> Vec<Card> {
         (0..count)
-            .map(|_| {
-                let id = self.card_deck.draw().to_string();
-                Card {
+            .filter_map(|_| {
+                let id = self.card_deck.draw()?;
+                Some(Card {
                     id: id.clone(),
                     name: id,
                     cost: 0, // TODO: look up actual cost
                     card_type: "UNKNOWN".to_string(),
                     upgraded: false,
-                }
+                })
             })
             .collect()
     }
 
     /// Draw the next relic from the relic deck.
     pub fn draw_relic(&mut self) -> Option<String> {
-        if self.relic_deck.is_empty() {
-            None
-        } else {
-            Some(self.relic_deck.remove(0))
-        }
+        self.relic_deck.draw()
     }
 }
 
 impl GameState {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
+        let mut state: Self = serde_json::from_str(json)?;
+
+        // Build unordered reward pools from observed state if possible
+        if state.reward_pools.is_none() {
+            if let Some(character) = state.infer_character() {
+                let deck_ids: Vec<String> = state.deck.iter().map(|c| c.id.clone()).collect();
+                let relic_ids: Vec<String> = state.relics.iter().map(|r| r.id.clone()).collect();
+                let potion_ids: Vec<String> = state
+                    .potions
+                    .iter()
+                    .filter_map(|p| p.as_ref().map(|p| p.id.clone()))
+                    .collect();
+                state.reward_pools =
+                    Some(RewardPools::from_observed(character, &deck_ids, &relic_ids, &potion_ids));
+            }
+        }
+
+        Ok(state)
+    }
+
+    /// Determinize all unordered pools by shuffling with the given seed.
+    /// After this call, all pools are Ordered and can be drawn from.
+    pub fn determinize(&mut self, seed: u64) {
+        if let Some(pools) = &mut self.reward_pools {
+            let mut rng = seed;
+            pools.determinize(&mut |items| {
+                // Fisher-Yates shuffle with LCG
+                for i in (1..items.len()).rev() {
+                    rng = rng
+                        .wrapping_mul(6364136223846793005)
+                        .wrapping_add(1442695040888963407);
+                    let j = (rng >> 33) as usize % (i + 1);
+                    items.swap(i, j);
+                }
+            });
+        }
+    }
+
+    /// Infer the character from starter relics.
+    fn infer_character(&self) -> Option<Character> {
+        for relic in &self.relics {
+            match relic.id.as_str() {
+                "BoardGame:BurningBlood" => return Some(Character::Ironclad),
+                "BGRing of the Snake" => return Some(Character::Silent),
+                "BGCrackedCore" => return Some(Character::Defect),
+                "BoardGame:BGMiracles" => return Some(Character::Watcher),
+                _ => {}
+            }
+        }
+        None
     }
 
     pub fn apply(&mut self, action: &Action) {
@@ -98,14 +242,15 @@ impl GameState {
                         }
                         "CURSE" => {
                             if let Some(pools) = &mut self.reward_pools {
-                                let id = pools.curse_deck.draw().to_string();
-                                self.deck.push(Card {
-                                    id: id.clone(),
-                                    name: id,
-                                    cost: -2,
-                                    card_type: "CURSE".to_string(),
-                                    upgraded: false,
-                                });
+                                if let Some(id) = pools.curse_deck.draw() {
+                                    self.deck.push(Card {
+                                        id: id.clone(),
+                                        name: id,
+                                        cost: -2,
+                                        card_type: "CURSE".to_string(),
+                                        upgraded: false,
+                                    });
+                                }
                             }
                         }
                         "NONE" | _ => {}
@@ -186,9 +331,9 @@ impl GameState {
                         }
                         "CHOOSE_COLORLESS_CARD" => {
                             let cards = if let Some(pools) = &mut self.reward_pools {
-                                (0..3).map(|_| {
-                                    let id = pools.colorless_deck.draw().to_string();
-                                    Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false }
+                                (0..3).filter_map(|_| {
+                                    let id = pools.colorless_deck.draw()?;
+                                    Some(Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false })
                                 }).collect()
                             } else {
                                 vec![]
@@ -218,27 +363,29 @@ impl GameState {
                         "GET_TWO_RANDOM_COLORLESS_CARDS" => {
                             if let Some(pools) = &mut self.reward_pools {
                                 for _ in 0..2 {
-                                    let id = pools.colorless_deck.draw().to_string();
-                                    self.deck.push(Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false });
+                                    if let Some(id) = pools.colorless_deck.draw() {
+                                        self.deck.push(Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false });
+                                    }
                                 }
                             }
                         }
                         "RANDOM_RARE_CARD" => {
                             if let Some(pools) = &mut self.reward_pools {
-                                let id = pools.rare_deck.draw().to_string();
-                                self.deck.push(Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false });
+                                if let Some(id) = pools.rare_deck.draw() {
+                                    self.deck.push(Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false });
+                                }
                             }
                         }
                         "THREE_POTIONS" => {
                             if let Some(pools) = &mut self.reward_pools {
-                                let rewards: Vec<crate::screen::Reward> = (0..3).map(|_| {
-                                    let id = pools.potion_deck.draw().to_string();
-                                    crate::screen::Reward {
+                                let rewards: Vec<crate::screen::Reward> = (0..3).filter_map(|_| {
+                                    let id = pools.potion_deck.draw()?;
+                                    Some(crate::screen::Reward {
                                         reward_type: "POTION".to_string(),
                                         gold: None,
                                         relic: None,
                                         potion: Some(Potion { id: id.clone(), name: id }),
-                                    }
+                                    })
                                 }).collect();
                                 self.screen = Screen::CombatRewards { rewards };
                             }
@@ -334,6 +481,20 @@ impl GameState {
             Action::SkipCardReward => {
                 self.screen = Screen::Complete;
             }
+            Action::Rest { .. } => {
+                // Heal 30% of max HP (rounded down), capped at max_hp
+                let heal = self.max_hp / 3;
+                self.hp = (self.hp + heal).min(self.max_hp);
+                self.screen = Screen::Complete;
+            }
+            Action::Smith { .. } => {
+                // Open grid screen to upgrade a card
+                let cards = self.upgradeable_cards();
+                self.screen = Screen::Grid {
+                    purpose: "upgrade".to_string(),
+                    cards,
+                };
+            }
             Action::TravelTo { .. } => {
                 // TODO: advance floor, enter room
             }
@@ -382,6 +543,7 @@ impl GameState {
             Screen::CardReward { cards } => card_reward_actions(cards),
             Screen::CombatRewards { rewards } => combat_reward_actions(rewards),
             Screen::Grid { cards, .. } => grid_actions(cards),
+            Screen::Rest { options } => rest_actions(options),
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
@@ -453,6 +615,18 @@ fn combat_reward_actions(rewards: &[crate::screen::Reward]) -> Vec<Action> {
         .collect();
     actions.push(Action::Proceed);
     actions
+}
+
+fn rest_actions(options: &[String]) -> Vec<Action> {
+    options
+        .iter()
+        .enumerate()
+        .map(|(i, opt)| match opt.as_str() {
+            "rest" => Action::Rest { choice_index: i as u8 },
+            "smith" => Action::Smith { choice_index: i as u8 },
+            _ => Action::Rest { choice_index: i as u8 },
+        })
+        .collect()
 }
 
 fn grid_actions(cards: &[Card]) -> Vec<Action> {
