@@ -31,7 +31,7 @@ fn take_card_adds_to_deck() {
 
     assert_eq!(state.deck.len(), 2);
     assert!(state.deck.iter().any(|c| c.id == "BGInflame"));
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn skip_card_reward() {
     state.apply(&Action::SkipCardReward);
 
     assert_eq!(state.deck.len(), 1); // unchanged
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -71,5 +71,5 @@ fn neow_choose_card_opens_card_reward() {
 
     state.apply(&state.available_actions()[0].clone());
 
-    assert!(matches!(state.screen, Screen::CardReward { .. }));
+    assert!(matches!(state.current_screen(), Screen::CardReward { .. }));
 }

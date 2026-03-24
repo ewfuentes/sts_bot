@@ -1,10 +1,27 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
+use crate::map::MapNodeKind;
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
 use crate::screen::{EventOption, Screen, ShopCard, ShopPotion, ShopRelic};
 use crate::types::{Card, Potion, Relic};
+
+fn deserialize_screen_stack<'de, D>(deserializer: D) -> Result<Vec<Screen>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let screen = Screen::deserialize(deserializer)?;
+    Ok(vec![screen])
+}
+
+fn serialize_screen_stack<S>(stack: &Vec<Screen>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let screen = stack.last().cloned().unwrap_or(Screen::Complete);
+    screen.serialize(serializer)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameState {
@@ -17,7 +34,11 @@ pub struct GameState {
     pub deck: Vec<Card>,
     pub relics: Vec<Relic>,
     pub potions: Vec<Option<Potion>>,
-    pub screen: Screen,
+    #[serde(
+        deserialize_with = "deserialize_screen_stack",
+        serialize_with = "serialize_screen_stack"
+    )]
+    pub screen: Vec<Screen>,
     #[serde(default)]
     pub actions: Vec<Action>,
     /// Reward pools for offline simulation. Not serialized.
@@ -192,6 +213,39 @@ impl GameState {
         Ok(state)
     }
 
+    pub fn current_screen(&self) -> &Screen {
+        static COMPLETE: Screen = Screen::Complete;
+        self.screen.last().unwrap_or(&COMPLETE)
+    }
+
+    pub fn current_screen_mut(&mut self) -> &mut Screen {
+        if self.screen.is_empty() {
+            self.screen.push(Screen::Complete);
+        }
+        self.screen.last_mut().unwrap()
+    }
+
+    pub fn set_screen(&mut self, s: Screen) {
+        if self.screen.is_empty() {
+            self.screen.push(s);
+        } else {
+            let last = self.screen.len() - 1;
+            self.screen[last] = s;
+        }
+    }
+
+    pub fn push_screen(&mut self, s: Screen) {
+        self.screen.push(s);
+    }
+
+    pub fn pop_screen(&mut self) {
+        if self.screen.len() > 1 {
+            self.screen.pop();
+        } else {
+            self.set_screen(Screen::Complete);
+        }
+    }
+
     /// Determinize all unordered pools by shuffling with the given seed.
     /// After this call, all pools are Ordered and can be drawn from.
     pub fn determinize(&mut self, seed: u64) {
@@ -265,40 +319,40 @@ impl GameState {
                         "TEN_GOLD" => self.gold += 10,
                         "REMOVE_CARD" => {
                             let cards = self.purgeable_cards();
-                            self.screen = Screen::Grid {
+                            self.set_screen(Screen::Grid {
                                 purpose: "purge".to_string(),
                                 cards,
-                            };
+                            });
                         }
                         "REMOVE_TWO" => {
                             let cards = self.purgeable_cards();
-                            self.screen = Screen::Grid {
+                            self.set_screen(Screen::Grid {
                                 purpose: "purge".to_string(),
                                 cards,
-                            };
+                            });
                             // TODO: need to track that 2 cards must be selected
                         }
                         "TRANSFORM_CARD" => {
                             let cards = self.transformable_cards();
-                            self.screen = Screen::Grid {
+                            self.set_screen(Screen::Grid {
                                 purpose: "transform".to_string(),
                                 cards,
-                            };
+                            });
                         }
                         "TRANSFORM_TWO_CARDS" => {
                             let cards = self.transformable_cards();
-                            self.screen = Screen::Grid {
+                            self.set_screen(Screen::Grid {
                                 purpose: "transform".to_string(),
                                 cards,
-                            };
+                            });
                             // TODO: need to track that 2 cards must be selected
                         }
                         "UPGRADE_CARD" => {
                             let cards = self.upgradeable_cards();
-                            self.screen = Screen::Grid {
+                            self.set_screen(Screen::Grid {
                                 purpose: "upgrade".to_string(),
                                 cards,
-                            };
+                            });
                         }
                         "UPGRADE_TWO_RANDOM" => {
                             // Upgrade 2 random upgradeable cards in deck
@@ -318,7 +372,7 @@ impl GameState {
                             } else {
                                 vec![]
                             };
-                            self.screen = Screen::CardReward { cards };
+                            self.set_screen(Screen::CardReward { cards });
                         }
                         "CHOOSE_RARE_CARD" => {
                             // TODO: draw from rare deck instead
@@ -327,7 +381,7 @@ impl GameState {
                             } else {
                                 vec![]
                             };
-                            self.screen = Screen::CardReward { cards };
+                            self.set_screen(Screen::CardReward { cards });
                         }
                         "CHOOSE_COLORLESS_CARD" => {
                             let cards = if let Some(pools) = &mut self.reward_pools {
@@ -338,7 +392,7 @@ impl GameState {
                             } else {
                                 vec![]
                             };
-                            self.screen = Screen::CardReward { cards };
+                            self.set_screen(Screen::CardReward { cards });
                         }
                         "CHOOSE_TWO_CARDS" | "CHOOSE_TWO_COLORLESS_CARDS" | "CARD_GOLD_COMBO" => {
                             if rt.as_str() == "CARD_GOLD_COMBO" {
@@ -350,7 +404,7 @@ impl GameState {
                             } else {
                                 vec![]
                             };
-                            self.screen = Screen::CardReward { cards };
+                            self.set_screen(Screen::CardReward { cards });
                         }
                         "GET_TWO_RANDOM_CARDS" => {
                             if let Some(pools) = &mut self.reward_pools {
@@ -387,7 +441,7 @@ impl GameState {
                                         potion: Some(Potion { id: id.clone(), name: id }),
                                     })
                                 }).collect();
-                                self.screen = Screen::CombatRewards { rewards };
+                                self.set_screen(Screen::CombatRewards { rewards });
                             }
                         }
                         "RELIC" => {
@@ -408,40 +462,38 @@ impl GameState {
                 }
             }
             Action::PickGridCard { card, .. } => {
-                match &self.screen {
-                    Screen::Grid { purpose, .. } => {
-                        let purpose = purpose.clone();
-                        match purpose.as_str() {
-                            "purge" => {
-                                if let Some(idx) = self.deck.iter().position(|c| c == card) {
-                                    self.deck.remove(idx);
-                                }
-                                self.screen = Screen::Complete;
+                if let Screen::Grid { purpose, .. } = self.current_screen() {
+                    let purpose = purpose.clone();
+                    match purpose.as_str() {
+                        "purge" => {
+                            if let Some(idx) = self.deck.iter().position(|c| c == card) {
+                                self.deck.remove(idx);
                             }
-                            "transform" => {
-                                if let Some(idx) = self.deck.iter().position(|c| c == card) {
-                                    self.deck.remove(idx);
-                                }
-                                // TODO: add a random replacement card (needs card pool)
-                                self.screen = Screen::Complete;
-                            }
-                            "upgrade" => {
-                                if let Some(c) = self.deck.iter_mut().find(|c| *c == card) {
-                                    c.upgraded = true;
-                                }
-                                self.screen = Screen::Complete;
-                            }
-                            _ => {}
+                            self.pop_screen();
                         }
+                        "transform" => {
+                            if let Some(idx) = self.deck.iter().position(|c| c == card) {
+                                self.deck.remove(idx);
+                            }
+                            // TODO: add a random replacement card (needs card pool)
+                            self.pop_screen();
+                        }
+                        "upgrade" => {
+                            if let Some(c) = self.deck.iter_mut().find(|c| *c == card) {
+                                c.upgraded = true;
+                            }
+                            self.pop_screen();
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
             Action::TakeReward { choice_index, .. } => {
-                if let Screen::CombatRewards { rewards } = &self.screen {
+                if let Screen::CombatRewards { rewards } = self.current_screen() {
                     let idx = *choice_index as usize;
                     if idx < rewards.len() {
-                        let reward = &rewards[idx];
+                        let reward = rewards[idx].clone();
+                        let mut taken = true;
                         match reward.reward_type.as_str() {
                             "GOLD" => {
                                 if let Some(gold) = reward.gold {
@@ -450,9 +502,10 @@ impl GameState {
                             }
                             "POTION" => {
                                 if let Some(potion) = &reward.potion {
-                                    // Add to first empty potion slot
                                     if let Some(slot) = self.potions.iter_mut().find(|p| p.is_none()) {
                                         *slot = Some(potion.clone());
+                                    } else {
+                                        taken = false;
                                     }
                                 }
                             }
@@ -461,50 +514,75 @@ impl GameState {
                                     self.relics.push(relic.clone());
                                 }
                             }
-                            "CARD" => {
-                                // Opens card reward sub-screen
-                                // TODO: draw cards from reward deck
+                            "CARD" | "UPGRADED_CARD" | "RARE_CARD" => {
+                                // Open card selection sub-screen; reward removed when card is taken
+                                let cards = if let Some(pools) = &mut self.reward_pools {
+                                    match reward.reward_type.as_str() {
+                                        "RARE_CARD" => {
+                                            (0..3).filter_map(|_| {
+                                                let id = pools.rare_deck.draw()?;
+                                                Some(Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false })
+                                            }).collect()
+                                        }
+                                        // TODO: upgrade cards for UPGRADED_CARD
+                                        _ => pools.draw_card_reward(3),
+                                    }
+                                } else {
+                                    vec![]
+                                };
+                                self.push_screen(Screen::CardReward { cards });
+                                taken = false; // don't remove yet
                             }
                             _ => {}
                         }
-                        // Remove the taken reward
-                        let mut new_rewards = rewards.clone();
-                        new_rewards.remove(idx);
-                        if new_rewards.is_empty() {
-                            self.screen = Screen::Complete;
-                        } else {
-                            self.screen = Screen::CombatRewards { rewards: new_rewards };
+                        if taken {
+                            self.remove_reward(idx);
                         }
                     }
                 }
             }
             Action::TakeCard { card, .. } => {
+                // Remove taken card from reward pool (permanently gone)
+                // Non-selected cards were already cycled to bottom by draw()
+                if let Some(pools) = &mut self.reward_pools {
+                    pools.card_deck.remove(&card.id);
+                    pools.rare_deck.remove(&card.id);
+                    pools.colorless_deck.remove(&card.id);
+                }
                 self.deck.push(card.clone());
-                self.screen = Screen::Complete;
+                self.pop_screen(); // pop CardReward
+                // Remove the CARD reward from CombatRewards if present underneath
+                if let Screen::CombatRewards { rewards } = self.current_screen() {
+                    if let Some(idx) = rewards.iter().position(|r|
+                        matches!(r.reward_type.as_str(), "CARD" | "UPGRADED_CARD" | "RARE_CARD")
+                    ) {
+                        self.remove_reward(idx);
+                    }
+                }
             }
             Action::SkipCardReward => {
-                self.screen = Screen::Complete;
+                self.pop_screen(); // pop CardReward, CARD reward stays in CombatRewards
             }
             Action::Rest { .. } => {
                 // Heal 30% of max HP (rounded down), capped at max_hp
                 let heal = self.max_hp / 3;
                 self.hp = (self.hp + heal).min(self.max_hp);
-                self.screen = Screen::Complete;
+                self.set_screen(Screen::Complete);
             }
             Action::Smith { .. } => {
                 // Open grid screen to upgrade a card
                 let cards = self.upgradeable_cards();
-                self.screen = Screen::Grid {
+                self.set_screen(Screen::Grid {
                     purpose: "upgrade".to_string(),
                     cards,
-                };
+                });
             }
             Action::BuyCard { card, price, .. } => {
                 if self.gold >= *price {
                     self.gold -= price;
                     self.deck.push(card.clone());
                     // Remove card from shop
-                    if let Screen::Shop { cards, .. } = &mut self.screen {
+                    if let Screen::Shop { cards, .. } = self.current_screen_mut() {
                         cards.retain(|c| c.card != *card);
                     }
                 }
@@ -519,7 +597,7 @@ impl GameState {
                         clickable: false,
                         pulsing: false,
                     });
-                    if let Screen::Shop { relics, .. } = &mut self.screen {
+                    if let Screen::Shop { relics, .. } = self.current_screen_mut() {
                         relics.retain(|r| r.id != *relic);
                     }
                 }
@@ -533,7 +611,7 @@ impl GameState {
                             name: potion.clone(),
                         });
                     }
-                    if let Screen::Shop { potions, .. } = &mut self.screen {
+                    if let Screen::Shop { potions, .. } = self.current_screen_mut() {
                         potions.retain(|p| p.id != *potion);
                     }
                 }
@@ -542,60 +620,126 @@ impl GameState {
                 if self.gold >= *price {
                     self.gold -= price;
                     let cards = self.purgeable_cards();
-                    self.screen = Screen::Grid {
+                    self.push_screen(Screen::Grid {
                         purpose: "purge".to_string(),
                         cards,
-                    };
+                    });
                 }
             }
             Action::LeaveShop => {
-                self.screen = Screen::Complete;
+                self.set_screen(Screen::Complete);
             }
             Action::PickBossRelic { choice_index, .. } => {
-                if let Screen::BossRelic { relics } = &self.screen {
+                if let Screen::BossRelic { relics } = self.current_screen() {
                     let idx = *choice_index as usize;
+                    let relics = relics.clone();
                     if idx < relics.len() {
                         let relic = relics[idx].clone();
                         self.relics.push(relic);
                         // Remove all offered boss relics from the pool
                         if let Some(pools) = &mut self.reward_pools {
-                            for r in relics {
+                            for r in &relics {
                                 pools.boss_relic_deck.remove(&r.id);
                             }
                         }
-                        self.screen = Screen::Complete;
+                        self.set_screen(Screen::Complete);
                     }
                 }
             }
             Action::SkipBossRelic => {
                 // Remove all offered boss relics from the pool even if skipped
-                if let Screen::BossRelic { relics } = &self.screen {
+                if let Screen::BossRelic { relics } = self.current_screen() {
+                    let relics = relics.clone();
                     if let Some(pools) = &mut self.reward_pools {
-                        for r in relics {
+                        for r in &relics {
                             pools.boss_relic_deck.remove(&r.id);
                         }
                     }
                 }
-                self.screen = Screen::Complete;
+                self.set_screen(Screen::Complete);
             }
-            Action::TravelTo { .. } => {
-                // TODO: advance floor, enter room
+            Action::TravelTo { kind, .. } => {
+                self.floor += 1;
+                self.set_screen(match kind {
+                    MapNodeKind::Monster => Screen::Combat { encounter: "UNKNOWN_MONSTER".to_string() },
+                    MapNodeKind::Elite => Screen::Combat { encounter: "UNKNOWN_ELITE".to_string() },
+                    MapNodeKind::Boss => Screen::Combat { encounter: "UNKNOWN_BOSS".to_string() },
+                    MapNodeKind::Rest => Screen::Rest {
+                        options: vec!["rest".to_string(), "smith".to_string()],
+                    },
+                    MapNodeKind::Shop => Screen::ShopRoom,
+                    MapNodeKind::Treasure => Screen::Treasure,
+                    MapNodeKind::Event | MapNodeKind::Unknown => Screen::Complete,
+                });
+            }
+            Action::Skip => {
+                if let Screen::Combat { encounter } = self.current_screen() {
+                    let encounter = encounter.clone();
+                    let rewards = self.generate_combat_rewards(&encounter);
+                    self.pop_screen(); // remove Combat
+                    self.push_screen(Screen::CombatRewards { rewards });
+                }
             }
             Action::Proceed => {
-                match &self.screen {
-                    Screen::CombatRewards { .. } | Screen::Complete | Screen::ShopRoom => {
-                        self.screen = Screen::Complete;
-                    }
+                match self.current_screen() {
                     Screen::GameOver { .. } => {
                         // Stay on game over
                     }
                     _ => {
-                        self.screen = Screen::Complete;
+                        self.pop_screen();
                     }
                 }
             }
             _ => {}
         }
+    }
+
+    /// Remove a reward by index from the current CombatRewards screen.
+    fn remove_reward(&mut self, idx: usize) {
+        if let Screen::CombatRewards { rewards } = self.current_screen() {
+            let mut new_rewards = rewards.clone();
+            new_rewards.remove(idx);
+            if new_rewards.is_empty() {
+                self.set_screen(Screen::Complete);
+            } else {
+                self.set_screen(Screen::CombatRewards { rewards: new_rewards });
+            }
+        }
+    }
+
+    fn generate_combat_rewards(&mut self, encounter: &str) -> Vec<crate::screen::Reward> {
+        use crate::screen::Reward;
+        let mut rewards = Vec::new();
+
+        match encounter {
+            "UNKNOWN_MONSTER" => {
+                rewards.push(Reward::gold(1));
+                if let Some(pools) = &mut self.reward_pools {
+                    if let Some(id) = pools.potion_deck.draw() {
+                        rewards.push(Reward::potion(Potion { id: id.clone(), name: id }));
+                    }
+                }
+                rewards.push(Reward::card());
+            }
+            "UNKNOWN_ELITE" => {
+                rewards.push(Reward::gold(1));
+                rewards.push(Reward::upgraded_card());
+                if let Some(pools) = &mut self.reward_pools {
+                    if let Some(id) = pools.draw_relic() {
+                        rewards.push(Reward::relic(Relic {
+                            id: id.clone(), name: id,
+                            counter: -1, clickable: false, pulsing: false,
+                        }));
+                    }
+                }
+            }
+            "UNKNOWN_BOSS" => {
+                rewards.push(Reward::gold(3));
+            }
+            _ => {}
+        }
+
+        rewards
     }
 
     fn purgeable_cards(&self) -> Vec<Card> {
@@ -619,7 +763,7 @@ impl GameState {
     }
 
     pub fn available_actions(&self) -> Vec<Action> {
-        match &self.screen {
+        match self.current_screen() {
             Screen::Neow { options } => neow_actions(options),
             Screen::Event { options, .. } => event_actions(options),
             Screen::Map { available_nodes } => map_actions(available_nodes),
@@ -632,6 +776,7 @@ impl GameState {
                 shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
             }
             Screen::BossRelic { relics } => boss_relic_actions(relics),
+            Screen::Combat { .. } => vec![Action::Skip],
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],

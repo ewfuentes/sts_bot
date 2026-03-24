@@ -69,7 +69,7 @@ fn buy_card_deducts_gold_and_adds_to_deck() {
     assert_eq!(state.deck.len(), 3);
     assert!(state.deck.iter().any(|c| c.id == "BGCarnage"));
     // Card should be removed from shop
-    if let Screen::Shop { cards, .. } = &state.screen {
+    if let Screen::Shop { cards, .. } = state.current_screen() {
         assert_eq!(cards.len(), 1); // only Bludgeon remains
     } else {
         panic!("Expected Shop screen");
@@ -86,7 +86,7 @@ fn buy_relic_adds_to_relics() {
 
     assert_eq!(state.gold, 85);
     assert!(state.relics.iter().any(|r| r.id == "BGAkabeko"));
-    if let Screen::Shop { relics, .. } = &state.screen {
+    if let Screen::Shop { relics, .. } = state.current_screen() {
         assert!(relics.is_empty());
     } else {
         panic!("Expected Shop screen");
@@ -114,7 +114,7 @@ fn purge_opens_grid() {
     state.apply(&action);
 
     assert_eq!(state.gold, 93);
-    match &state.screen {
+    match state.current_screen() {
         Screen::Grid { purpose, cards } => {
             assert_eq!(purpose, "purge");
             assert_eq!(cards.len(), 2);
@@ -127,7 +127,7 @@ fn purge_opens_grid() {
 fn leave_shop_completes() {
     let mut state = make_shop_state(100);
     state.apply(&Action::LeaveShop);
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
     assert_eq!(state.gold, 100); // no gold deducted
 }
 

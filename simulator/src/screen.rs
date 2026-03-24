@@ -17,7 +17,10 @@ pub enum Screen {
     Map {
         available_nodes: Vec<MapChoice>,
     },
-    Combat {},
+    Combat {
+        #[serde(default)]
+        encounter: String,
+    },
     CardReward {
         cards: Vec<Card>,
     },
@@ -88,6 +91,27 @@ pub struct Reward {
     pub gold: Option<u16>,
     pub relic: Option<crate::types::Relic>,
     pub potion: Option<crate::types::Potion>,
+}
+
+impl Reward {
+    pub fn gold(amount: u16) -> Self {
+        Reward { reward_type: "GOLD".into(), gold: Some(amount), relic: None, potion: None }
+    }
+    pub fn card() -> Self {
+        Reward { reward_type: "CARD".into(), gold: None, relic: None, potion: None }
+    }
+    pub fn upgraded_card() -> Self {
+        Reward { reward_type: "UPGRADED_CARD".into(), gold: None, relic: None, potion: None }
+    }
+    pub fn rare_card() -> Self {
+        Reward { reward_type: "RARE_CARD".into(), gold: None, relic: None, potion: None }
+    }
+    pub fn potion(p: crate::types::Potion) -> Self {
+        Reward { reward_type: "POTION".into(), gold: None, relic: None, potion: Some(p) }
+    }
+    pub fn relic(r: crate::types::Relic) -> Self {
+        Reward { reward_type: "RELIC".into(), gold: None, relic: Some(r), potion: None }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

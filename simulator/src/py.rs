@@ -59,7 +59,7 @@ impl PyGameState {
             "deck": s.deck,
             "relics": s.relics,
             "potions": s.potions,
-            "screen": s.screen,
+            "screen": s.current_screen(),
         });
         serde_json::to_string(&summary)
             .map_err(|e| PyValueError::new_err(format!("Serialization error: {e}")))

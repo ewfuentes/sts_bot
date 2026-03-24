@@ -40,7 +40,7 @@ fn pick_boss_relic_adds_to_relics() {
 
     assert_eq!(state.relics.len(), 1);
     assert_eq!(state.relics[0].id, "BGSneckoEye");
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -49,5 +49,5 @@ fn skip_boss_relic() {
     state.apply(&Action::SkipBossRelic);
 
     assert!(state.relics.is_empty());
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }

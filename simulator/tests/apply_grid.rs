@@ -52,7 +52,7 @@ fn remove_card_opens_grid() {
     let action = state.available_actions()[0].clone();
     state.apply(&action);
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::Grid { purpose, cards } => {
             assert_eq!(purpose, "purge");
             assert_eq!(cards.len(), 3);
@@ -89,7 +89,7 @@ fn remove_card_from_grid() {
     // Defend should be removed from deck
     assert_eq!(state.deck.len(), 2);
     assert!(state.deck.iter().all(|c| c.id != "BGDefend_R"));
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn upgrade_card_from_grid() {
     // Pick UPGRADE_CARD blessing
     state.apply(&state.available_actions()[0].clone());
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::Grid { purpose, cards } => {
             assert_eq!(purpose, "upgrade");
             assert_eq!(cards.len(), 2);
@@ -132,7 +132,7 @@ fn upgrade_card_from_grid() {
     let bash = state.deck.iter().find(|c| c.id == "BGBash").unwrap();
     assert!(bash.upgraded);
     assert!(!state.deck.iter().find(|c| c.id == "BGStrike_R").unwrap().upgraded);
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn transform_card_removes_from_deck() {
 
     state.apply(&state.available_actions()[0].clone());
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::Grid { purpose, .. } => assert_eq!(purpose, "transform"),
         other => panic!("Expected Grid screen, got {:?}", other),
     }

@@ -44,7 +44,7 @@ fn choose_a_card_opens_reward_with_3_cards() {
     let action = state.available_actions()[0].clone();
     state.apply(&action);
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::CardReward { cards } => {
             assert_eq!(cards.len(), 3);
             // Cards should have IDs from the ironclad pool
@@ -69,7 +69,7 @@ fn choose_a_card_then_take() {
     // Take the first card
     state.apply(&actions[0].clone());
     assert_eq!(state.deck.len(), initial_deck + 1);
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -117,7 +117,7 @@ fn three_potions_opens_combat_rewards() {
 
     state.apply(&state.available_actions()[0].clone());
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::CombatRewards { rewards } => {
             assert_eq!(rewards.len(), 3);
             for r in rewards {
@@ -135,14 +135,14 @@ fn three_potions_opens_combat_rewards() {
 
     // Should have 1 potion in slot, 2 rewards remaining
     assert!(state.potions[0].is_some());
-    match &state.screen {
+    match state.current_screen() {
         Screen::CombatRewards { rewards } => assert_eq!(rewards.len(), 2),
         other => panic!("Expected CombatRewards with 2 remaining, got {:?}", other),
     }
 
     // Proceed to skip remaining
     state.apply(&sts_simulator::Action::Proceed);
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn colorless_card_draws_from_colorless_deck() {
     let mut state = make_neow_state_with_pools("CHOOSE_COLORLESS_CARD", "NONE");
     state.apply(&state.available_actions()[0].clone());
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::CardReward { cards } => {
             assert_eq!(cards.len(), 3);
         }

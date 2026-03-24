@@ -24,7 +24,7 @@ fn neow_remove_card_matches_live_game() {
     let live_grid_state = GameState::from_json(grid_json).unwrap();
 
     // Compare: both should be Grid with purpose=purge
-    match (&state.screen, &live_grid_state.screen) {
+    match (state.current_screen(), live_grid_state.current_screen()) {
         (
             Screen::Grid { purpose: sim_purpose, cards: sim_cards },
             Screen::Grid { purpose: live_purpose, cards: live_cards },

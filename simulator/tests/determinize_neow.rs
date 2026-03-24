@@ -75,7 +75,7 @@ fn choose_a_card_opens_reward_after_determinize() {
     assert!(state.hp < 50);
 
     // Should be on card reward screen with 3 cards
-    match &state.screen {
+    match state.current_screen() {
         sts_simulator::Screen::CardReward { cards } => {
             assert_eq!(cards.len(), 3);
         }

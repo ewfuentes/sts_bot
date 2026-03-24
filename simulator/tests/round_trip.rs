@@ -12,7 +12,7 @@ fn deserialize_neow_fixture() {
     assert!(!state.deck.is_empty());
     assert!(!state.relics.is_empty());
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::Event { event_name, options, .. } => {
             assert_eq!(event_name, "Neow");
             assert!(!options.is_empty());
@@ -29,7 +29,7 @@ fn neow_available_actions() {
     let actions = state.available_actions();
 
     // Should have one action per non-disabled option
-    let non_disabled = match &state.screen {
+    let non_disabled = match state.current_screen() {
         Screen::Event { options, .. } => options.iter().filter(|o| !o.disabled).count(),
         _ => panic!("Expected Event screen"),
     };
@@ -58,7 +58,7 @@ fn deserialize_map_fixture() {
     let json = include_str!("fixtures/map.json");
     let state = GameState::from_json(json).expect("Failed to deserialize map fixture");
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::Map { available_nodes } => {
             assert!(!available_nodes.is_empty());
         }
@@ -72,7 +72,7 @@ fn map_available_actions() {
     let state = GameState::from_json(json).unwrap();
 
     let actions = state.available_actions();
-    let node_count = match &state.screen {
+    let node_count = match state.current_screen() {
         Screen::Map { available_nodes } => available_nodes.len(),
         _ => panic!("Expected Map screen"),
     };

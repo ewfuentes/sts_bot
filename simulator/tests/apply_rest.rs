@@ -34,7 +34,7 @@ fn rest_heals_30_percent() {
 
     // 80 / 3 = 26 (integer division), 50 + 26 = 76
     assert_eq!(state.hp, 76);
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn smith_opens_upgrade_grid() {
     ]);
     state.apply(&Action::Smith { choice_index: 1 });
 
-    match &state.screen {
+    match state.current_screen() {
         Screen::Grid { purpose, cards } => {
             assert_eq!(purpose, "upgrade");
             // Only non-upgraded cards should appear
@@ -86,5 +86,5 @@ fn smith_then_upgrade_card() {
     let bash = state.deck.iter().find(|c| c.id == "BGBash").unwrap();
     assert!(bash.upgraded);
     assert!(!state.deck.iter().find(|c| c.id == "BGStrike_R").unwrap().upgraded);
-    assert!(matches!(state.screen, Screen::Complete));
+    assert!(matches!(state.current_screen(), Screen::Complete));
 }
