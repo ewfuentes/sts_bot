@@ -1,7 +1,7 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
-use crate::map::MapNodeKind;
+use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
 use crate::screen::{EventOption, Screen, ShopCard, ShopPotion, ShopRelic};
@@ -34,6 +34,8 @@ pub struct GameState {
     pub deck: Vec<Card>,
     pub relics: Vec<Relic>,
     pub potions: Vec<Option<Potion>>,
+    #[serde(default)]
+    pub map: Option<ActMap>,
     #[serde(
         deserialize_with = "deserialize_screen_stack",
         serialize_with = "serialize_screen_stack"
@@ -524,7 +526,13 @@ impl GameState {
                                                 Some(Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false })
                                             }).collect()
                                         }
-                                        // TODO: upgrade cards for UPGRADED_CARD
+                                        "UPGRADED_CARD" => {
+                                            let mut cards = pools.draw_card_reward(3);
+                                            for c in &mut cards {
+                                                c.upgraded = true;
+                                            }
+                                            cards
+                                        }
                                         _ => pools.draw_card_reward(3),
                                     }
                                 } else {
@@ -543,25 +551,52 @@ impl GameState {
             }
             Action::TakeCard { card, .. } => {
                 // Remove taken card from reward pool (permanently gone)
-                // Non-selected cards were already cycled to bottom by draw()
                 if let Some(pools) = &mut self.reward_pools {
                     pools.card_deck.remove(&card.id);
                     pools.rare_deck.remove(&card.id);
                     pools.colorless_deck.remove(&card.id);
                 }
                 self.deck.push(card.clone());
-                self.pop_screen(); // pop CardReward
-                // Remove the CARD reward from CombatRewards if present underneath
-                if let Screen::CombatRewards { rewards } = self.current_screen() {
-                    if let Some(idx) = rewards.iter().position(|r|
-                        matches!(r.reward_type.as_str(), "CARD" | "UPGRADED_CARD" | "RARE_CARD")
-                    ) {
-                        self.remove_reward(idx);
+
+                match self.current_screen() {
+                    Screen::BossRelic { .. } => {
+                        // Clear cards from boss relic screen, check if done
+                        if let Screen::BossRelic { relics, cards } = self.current_screen_mut() {
+                            cards.clear();
+                            if relics.is_empty() {
+                                self.pop_screen();
+                            }
+                        }
                     }
+                    Screen::CardReward { .. } => {
+                        self.pop_screen();
+                        // Remove CARD reward from CombatRewards if present underneath
+                        if let Screen::CombatRewards { rewards } = self.current_screen() {
+                            if let Some(idx) = rewards.iter().position(|r|
+                                matches!(r.reward_type.as_str(), "CARD" | "UPGRADED_CARD" | "RARE_CARD")
+                            ) {
+                                self.remove_reward(idx);
+                            }
+                        }
+                    }
+                    _ => {}
                 }
             }
             Action::SkipCardReward => {
-                self.pop_screen(); // pop CardReward, CARD reward stays in CombatRewards
+                match self.current_screen() {
+                    Screen::BossRelic { .. } => {
+                        // Clear cards, check if done
+                        if let Screen::BossRelic { relics, cards } = self.current_screen_mut() {
+                            cards.clear();
+                            if relics.is_empty() {
+                                self.pop_screen();
+                            }
+                        }
+                    }
+                    _ => {
+                        self.pop_screen();
+                    }
+                }
             }
             Action::Rest { .. } => {
                 // Heal 30% of max HP (rounded down), capped at max_hp
@@ -619,6 +654,10 @@ impl GameState {
             Action::Purge { price, .. } => {
                 if self.gold >= *price {
                     self.gold -= price;
+                    // Mark purge as used (set cost to None so it won't be offered again)
+                    if let Screen::Shop { purge_cost, .. } = self.current_screen_mut() {
+                        *purge_cost = None;
+                    }
                     let cards = self.purgeable_cards();
                     self.push_screen(Screen::Grid {
                         purpose: "purge".to_string(),
@@ -630,25 +669,30 @@ impl GameState {
                 self.set_screen(Screen::Complete);
             }
             Action::PickBossRelic { choice_index, .. } => {
-                if let Screen::BossRelic { relics } = self.current_screen() {
+                if let Screen::BossRelic { relics, .. } = self.current_screen() {
                     let idx = *choice_index as usize;
                     let relics = relics.clone();
                     if idx < relics.len() {
-                        let relic = relics[idx].clone();
-                        self.relics.push(relic);
+                        self.relics.push(relics[idx].clone());
                         // Remove all offered boss relics from the pool
                         if let Some(pools) = &mut self.reward_pools {
                             for r in &relics {
                                 pools.boss_relic_deck.remove(&r.id);
                             }
                         }
-                        self.set_screen(Screen::Complete);
+                        // Clear relics from screen, check if done
+                        if let Screen::BossRelic { relics, cards } = self.current_screen_mut() {
+                            relics.clear();
+                            if cards.is_empty() {
+                                self.pop_screen();
+                            }
+                        }
                     }
                 }
             }
             Action::SkipBossRelic => {
                 // Remove all offered boss relics from the pool even if skipped
-                if let Screen::BossRelic { relics } = self.current_screen() {
+                if let Screen::BossRelic { relics, .. } = self.current_screen() {
                     let relics = relics.clone();
                     if let Some(pools) = &mut self.reward_pools {
                         for r in &relics {
@@ -656,28 +700,60 @@ impl GameState {
                         }
                     }
                 }
+                self.pop_screen();
+            }
+            Action::OpenChest { .. } => {
+                // Draw a relic from the relic pool
+                if let Some(pools) = &mut self.reward_pools {
+                    if let Some(id) = pools.draw_relic() {
+                        self.relics.push(Relic {
+                            id: id.clone(),
+                            name: id,
+                            counter: -1,
+                            clickable: false,
+                            pulsing: false,
+                        });
+                    }
+                }
                 self.set_screen(Screen::Complete);
             }
             Action::TravelTo { kind, .. } => {
                 self.floor += 1;
-                self.set_screen(match kind {
+                let kind = *kind;
+                let screen = match kind {
                     MapNodeKind::Monster => Screen::Combat { encounter: "UNKNOWN_MONSTER".to_string() },
                     MapNodeKind::Elite => Screen::Combat { encounter: "UNKNOWN_ELITE".to_string() },
                     MapNodeKind::Boss => Screen::Combat { encounter: "UNKNOWN_BOSS".to_string() },
                     MapNodeKind::Rest => Screen::Rest {
                         options: vec!["rest".to_string(), "smith".to_string()],
                     },
-                    MapNodeKind::Shop => Screen::ShopRoom,
+                    MapNodeKind::Shop => self.generate_shop(),
                     MapNodeKind::Treasure => Screen::Treasure,
                     MapNodeKind::Event | MapNodeKind::Unknown => Screen::Complete,
-                });
+                };
+                self.set_screen(screen);
             }
             Action::Skip => {
                 if let Screen::Combat { encounter } = self.current_screen() {
                     let encounter = encounter.clone();
                     let rewards = self.generate_combat_rewards(&encounter);
                     self.pop_screen(); // remove Combat
-                    self.push_screen(Screen::CombatRewards { rewards });
+                    if encounter == "UNKNOWN_BOSS" {
+                        // Boss: gold rewards, then boss relic screen with rare card
+                        let boss_relic_screen = self.generate_boss_relic_screen();
+                        self.push_screen(boss_relic_screen);
+                        if !rewards.is_empty() {
+                            self.push_screen(Screen::CombatRewards { rewards });
+                        }
+                    } else {
+                        self.push_screen(Screen::CombatRewards { rewards });
+                    }
+                }
+            }
+            Action::DiscardPotion { slot } => {
+                let idx = *slot as usize;
+                if idx < self.potions.len() {
+                    self.potions[idx] = None;
                 }
             }
             Action::Proceed => {
@@ -742,6 +818,64 @@ impl GameState {
         rewards
     }
 
+    fn generate_shop(&mut self) -> Screen {
+        use crate::screen::{ShopCard, ShopRelic, ShopPotion};
+        let mut cards = Vec::new();
+        let mut relics = Vec::new();
+        let mut potions = Vec::new();
+
+        if let Some(pools) = &mut self.reward_pools {
+            // 5 cards for sale
+            for price in [2, 2, 3, 3, 3] {
+                if let Some(id) = pools.card_deck.draw() {
+                    cards.push(ShopCard {
+                        card: Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false },
+                        price: Some(price),
+                    });
+                }
+            }
+            // 3 relics
+            for price in [7, 7, 8] {
+                if let Some(id) = pools.draw_relic() {
+                    relics.push(ShopRelic { id: id.clone(), name: id, price: Some(price) });
+                }
+            }
+            // 3 potions
+            for price in [2, 2, 3] {
+                if let Some(id) = pools.potion_deck.draw() {
+                    potions.push(ShopPotion { id: id.clone(), name: id, price: Some(price) });
+                }
+            }
+        }
+
+        Screen::Shop { cards, relics, potions, purge_cost: Some(3) }
+    }
+
+    fn generate_boss_relic_screen(&mut self) -> Screen {
+        let mut relics = Vec::new();
+        let mut cards = Vec::new();
+        if let Some(pools) = &mut self.reward_pools {
+            for _ in 0..3 {
+                if let Some(id) = pools.boss_relic_deck.draw() {
+                    relics.push(Relic {
+                        id: id.clone(), name: id,
+                        counter: -1, clickable: false, pulsing: false,
+                    });
+                }
+            }
+            // Rare card reward
+            for _ in 0..3 {
+                if let Some(id) = pools.rare_deck.draw() {
+                    cards.push(Card {
+                        id: id.clone(), name: id, cost: 0,
+                        card_type: "UNKNOWN".to_string(), upgraded: false,
+                    });
+                }
+            }
+        }
+        Screen::BossRelic { relics, cards }
+    }
+
     fn purgeable_cards(&self) -> Vec<Card> {
         self.deck
             .iter()
@@ -763,10 +897,10 @@ impl GameState {
     }
 
     pub fn available_actions(&self) -> Vec<Action> {
-        match self.current_screen() {
+        let mut actions = match self.current_screen() {
             Screen::Neow { options } => neow_actions(options),
             Screen::Event { options, .. } => event_actions(options),
-            Screen::Map { available_nodes } => map_actions(available_nodes),
+            Screen::Map { available_nodes, .. } => map_actions(available_nodes),
             Screen::CardReward { cards } => card_reward_actions(cards),
             Screen::CombatRewards { rewards } => combat_reward_actions(rewards),
             Screen::Grid { cards, .. } => grid_actions(cards),
@@ -775,13 +909,24 @@ impl GameState {
                 let has_potion_slot = self.potions.iter().any(|p| p.is_none());
                 shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
             }
-            Screen::BossRelic { relics } => boss_relic_actions(relics),
+            Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
             Screen::Combat { .. } => vec![Action::Skip],
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
             _ => vec![],
+        };
+
+        // Potion discard available on most screens
+        if !matches!(self.current_screen(), Screen::GameOver { .. } | Screen::Combat { .. }) {
+            for (i, potion) in self.potions.iter().enumerate() {
+                if potion.is_some() {
+                    actions.push(Action::DiscardPotion { slot: i as u8 });
+                }
+            }
         }
+
+        actions
     }
 }
 
@@ -918,14 +1063,20 @@ fn shop_actions(
     actions
 }
 
-fn boss_relic_actions(relics: &[crate::types::Relic]) -> Vec<Action> {
-    let mut actions: Vec<Action> = relics
-        .iter()
-        .enumerate()
-        .map(|(i, _)| Action::PickBossRelic {
-            choice_index: i as u8,
-        })
-        .collect();
+fn boss_relic_actions(relics: &[crate::types::Relic], cards: &[Card]) -> Vec<Action> {
+    let mut actions = Vec::new();
+    // Can pick one relic (if any remain)
+    for (i, _) in relics.iter().enumerate() {
+        actions.push(Action::PickBossRelic { choice_index: i as u8 });
+    }
+    // Can take one card (if any remain)
+    for (i, card) in cards.iter().enumerate() {
+        actions.push(Action::TakeCard { card: card.clone(), choice_index: i as u8 });
+    }
+    if !cards.is_empty() {
+        actions.push(Action::SkipCardReward);
+    }
+    // Can skip the whole thing
     actions.push(Action::SkipBossRelic);
     actions
 }

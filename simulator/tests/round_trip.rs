@@ -59,7 +59,7 @@ fn deserialize_map_fixture() {
     let state = GameState::from_json(json).expect("Failed to deserialize map fixture");
 
     match state.current_screen() {
-        Screen::Map { available_nodes } => {
+        Screen::Map { available_nodes, .. } => {
             assert!(!available_nodes.is_empty());
         }
         other => panic!("Expected Map screen, got {:?}", other),
@@ -73,7 +73,7 @@ fn map_available_actions() {
 
     let actions = state.available_actions();
     let node_count = match state.current_screen() {
-        Screen::Map { available_nodes } => available_nodes.len(),
+        Screen::Map { available_nodes, .. } => available_nodes.len(),
         _ => panic!("Expected Map screen"),
     };
     assert_eq!(actions.len(), node_count);

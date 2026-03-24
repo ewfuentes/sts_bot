@@ -65,7 +65,7 @@ fn travel_to_shop() {
     });
 
     assert_eq!(state.floor, 4);
-    assert!(matches!(state.current_screen(), Screen::ShopRoom));
+    assert!(matches!(state.current_screen(), Screen::Shop { .. }));
 }
 
 #[test]

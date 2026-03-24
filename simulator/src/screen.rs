@@ -15,6 +15,8 @@ pub enum Screen {
         options: Vec<EventOption>,
     },
     Map {
+        #[serde(default)]
+        current_node: usize,
         available_nodes: Vec<MapChoice>,
     },
     Combat {
@@ -29,6 +31,8 @@ pub enum Screen {
     },
     BossRelic {
         relics: Vec<crate::types::Relic>,
+        #[serde(default)]
+        cards: Vec<Card>,
     },
     Shop {
         cards: Vec<ShopCard>,
@@ -82,6 +86,8 @@ pub struct EventOption {
 pub struct MapChoice {
     pub label: String,
     pub kind: MapNodeKind,
+    #[serde(default)]
+    pub node_index: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

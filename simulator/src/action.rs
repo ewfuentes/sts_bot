@@ -80,6 +80,9 @@ pub enum Action {
         label: String,
         choice_index: u8,
     },
+    DiscardPotion {
+        slot: u8,
+    },
     Proceed,
     Skip,
 }
@@ -106,6 +109,7 @@ impl Action {
             Action::PickGridCard { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickHandCard { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickCustomScreenOption { choice_index, .. } => format!("choose {}", choice_index),
+            Action::DiscardPotion { slot } => format!("potion discard {}", slot),
             Action::Proceed => "proceed".to_string(),
             Action::Skip => "skip".to_string(),
         }
