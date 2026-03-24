@@ -8,10 +8,15 @@ import threading
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, Static
+from textual.widgets import Footer, Header, Input, Label, ListItem, ListView, RichLog, Static
 from textual.suggester import SuggestFromList
 
 from translator import translate_state, to_commod_command
+
+try:
+    from sts_simulator import GameState as SimGameState
+except ImportError:
+    SimGameState = None
 
 SOCKET_PATH = "/tmp/sts_commod.sock"
 
@@ -361,7 +366,7 @@ class STSApp(App):
         display: block;
     }
     #log {
-        height: 8;
+        height: 12;
         padding: 0 1;
         background: $surface;
         border-top: solid $primary;
@@ -371,7 +376,21 @@ class STSApp(App):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("d", "toggle_debug", "Debug"),
+        ("s", "sim_sync", "Sync sim"),
+        ("v", "sim_verify", "Verify sim"),
+        ("i", "sim_inspect", "Inspect sim"),
     ]
+
+    # Actions the simulator knows how to apply
+    SIM_ACTIONS = {
+        "pick_neow_blessing", "pick_event_option", "travel_to",
+        "take_card", "skip_card_reward", "take_reward",
+        "pick_boss_relic", "skip_boss_relic",
+        "buy_card", "buy_relic", "buy_potion", "purge", "leave_shop",
+        "rest", "smith", "open_chest",
+        "pick_grid_card", "pick_hand_card",
+        "pick_custom_screen_option", "proceed", "skip",
+    }
 
     def __init__(self):
         super().__init__()
@@ -379,7 +398,7 @@ class STSApp(App):
         self.raw_state = None
         self.translated = None
         self.actions = []
-        self.log_lines = []
+        self.sim = None  # PyO3 GameState, set on sync
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -392,7 +411,7 @@ class STSApp(App):
             id="debug-input",
             suggester=SuggestFromList(DEBUG_SUGGESTIONS, case_sensitive=False),
         )
-        yield Static(id="log", markup=False)
+        yield RichLog(id="log", markup=False)
         yield Footer()
 
     def on_mount(self):
@@ -421,6 +440,9 @@ class STSApp(App):
             # Display will be updated by the async state callback
         except Exception as e:
             self._log(f"Error: {e}")
+
+        # Forward to simulator if synced and action type is supported
+        self._sim_apply(action)
 
     def _apply_state(self, raw):
         """Apply a raw state update to the display."""
@@ -569,11 +591,103 @@ class STSApp(App):
             event.prevent_default()
             event.stop()
 
+    def _sim_apply(self, action):
+        """Forward an action to the simulator if it's synced and the action is supported."""
+        if self.sim is None:
+            return
+        atype = action.get("type", "")
+        if atype not in self.SIM_ACTIONS:
+            return
+        try:
+            self.sim.apply(json.dumps(action))
+        except BaseException as e:
+            self._log(f"[sim] apply error: {e}")
+
+    def action_sim_sync(self):
+        """Sync: load current live game state into the simulator."""
+        if SimGameState is None:
+            self._log("[sim] sts_simulator not installed")
+            return
+        if self.translated is None:
+            self._log("[sim] No game state to sync")
+            return
+        try:
+            state_json = json.dumps(self.translated)
+            self.sim = SimGameState.from_json(state_json)
+            self._log("[sim] Synced — simulator loaded with live state")
+        except Exception as e:
+            self._log(f"[sim] Sync error: {e}")
+
+    def action_sim_verify(self):
+        """Verify: compare simulator state with current live game state."""
+        if self.sim is None:
+            self._log("[sim] Not synced — press 's' first")
+            return
+        if self.translated is None:
+            self._log("[sim] No game state to compare")
+            return
+        try:
+            sim_state = json.loads(self.sim.to_json())
+            live = self.translated
+            diffs = []
+            for key in ("hp", "max_hp", "gold", "floor"):
+                sv = sim_state.get(key)
+                lv = live.get(key)
+                if sv != lv:
+                    diffs.append(f"  {key}: sim={sv} live={lv}")
+            # Compare deck sizes and contents
+            sim_deck = sorted(c["id"] for c in sim_state.get("deck", []))
+            live_deck = sorted(c["id"] for c in live.get("deck", []))
+            if sim_deck != live_deck:
+                diffs.append(f"  deck: sim={len(sim_deck)} cards, live={len(live_deck)} cards")
+                added = [c for c in sim_deck if c not in live_deck]
+                removed = [c for c in live_deck if c not in sim_deck]
+                if added:
+                    diffs.append(f"    sim has extra: {added}")
+                if removed:
+                    diffs.append(f"    live has extra: {removed}")
+            # Compare relics
+            sim_relics = sorted(r["id"] for r in sim_state.get("relics", []))
+            live_relics = sorted(r["id"] for r in live.get("relics", []))
+            if sim_relics != live_relics:
+                diffs.append(f"  relics: sim={sim_relics} live={live_relics}")
+            # Compare screen type
+            sim_screen = sim_state.get("screen", {}).get("type", "?")
+            live_screen = live.get("screen", {}).get("type", "?")
+            if sim_screen != live_screen:
+                diffs.append(f"  screen: sim={sim_screen} live={live_screen}")
+            if diffs:
+                self._log("[sim] MISMATCH:\n" + "\n".join(diffs))
+            else:
+                self._log("[sim] OK — states match")
+        except Exception as e:
+            self._log(f"[sim] Verify error: {e}")
+
+    def action_sim_inspect(self):
+        """Inspect: dump simulator state to log."""
+        if self.sim is None:
+            self._log("[sim] Not synced — press 's' first")
+            return
+        try:
+            s = json.loads(self.sim.to_json())
+            deck = [c["id"] + ("+" if c.get("upgraded") else "") for c in s.get("deck", [])]
+            relics = [r["id"] for r in s.get("relics", [])]
+            potions = [p["id"] if p else "empty" for p in s.get("potions", [])]
+            screen_type = s.get("screen", {}).get("type", "?")
+            lines = [
+                f"[sim] HP:{s['hp']}/{s['max_hp']} Gold:{s['gold']} Floor:{s['floor']}",
+                f"  Deck({len(deck)}): {', '.join(deck)}",
+                f"  Relics: {', '.join(relics)}",
+                f"  Potions: [{', '.join(potions)}]",
+                f"  Screen: {screen_type}",
+            ]
+            self._log("\n".join(lines))
+        except BaseException as e:
+            self._log(f"[sim] Inspect error: {e}")
+
     def _log(self, msg):
-        self.log_lines.append(msg)
-        if len(self.log_lines) > 5:
-            self.log_lines = self.log_lines[-5:]
-        self.query_one("#log", Static).update("\n".join(self.log_lines))
+        log_widget = self.query_one("#log", RichLog)
+        log_widget.write(msg)
 
     def on_unmount(self):
         if self.client:

@@ -6,11 +6,15 @@ name = "glue"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "sts-simulator" },
     { name = "textual" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "textual", specifier = ">=8.1.1" }]
+requires-dist = [
+    { name = "sts-simulator", editable = "../simulator" },
+    { name = "textual", specifier = ">=8.1.1" },
+]
 
 [[package]]
 name = "linkify-it-py"
@@ -92,6 +96,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/b3/c6/f3b320c27991c46f4
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/25/b208c5683343959b670dc001595f2f3737e051da617f66c31f7c4fa93abc/rich-14.3.3-py3-none-any.whl", hash = "sha256:793431c1f8619afa7d3b52b2cdec859562b950ea0d4b6b505397612db8d5362d", size = 310458 },
 ]
+
+[[package]]
+name = "sts-simulator"
+version = "0.1.0"
+source = { editable = "../simulator" }
 
 [[package]]
 name = "textual"

@@ -6,4 +6,8 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "textual>=8.1.1",
+    "sts_simulator",
 ]
+
+[tool.uv.sources]
+sts_simulator = { path = "../simulator", editable = true }
