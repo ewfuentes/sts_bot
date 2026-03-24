@@ -180,7 +180,8 @@ def _clickable_relic_actions(game):
         if relic.get("clickable", False):
             counter = relic.get("counter", -1)
             pulsing = relic.get("pulsing", False)
-            # Usable if pulsing (die-triggered) or has charges (counter > 0)
+            # Pulsing indicates the game considers this relic ready to use.
+            # counter > 0 as a fallback for relics with charges.
             if pulsing or counter > 0:
                 actions.append({
                     "type": "use_relic",
@@ -255,7 +256,15 @@ def _translate_screen(game, available_commands=None):
         return _translate_boss_reward(screen_state, game)
 
     if screen_type == "SHOP_ROOM":
-        return {"type": "shop_room"}, [{"type": "proceed"}]
+        choice_list = game.get("choice_list", [])
+        actions = []
+        for i, choice in enumerate(choice_list):
+            actions.append({"type": "pick_event_option", "label": choice, "choice_index": i})
+        if "proceed" in available_commands and not actions:
+            actions.append({"type": "proceed"})
+        elif "proceed" in available_commands:
+            actions.append({"type": "proceed"})
+        return {"type": "shop_room"}, actions
 
     if screen_type == "SHOP_SCREEN":
         return _translate_shop(screen_state, game)
@@ -431,6 +440,7 @@ def _translate_combat_reward(screen_state, game):
 
 def _translate_boss_reward(screen_state, game):
     relics = screen_state.get("relics", [])
+    choice_list = game.get("choice_list", [])
 
     actions = [
         {
@@ -440,6 +450,12 @@ def _translate_boss_reward(screen_state, game):
         }
         for i, r in enumerate(relics)
     ]
+
+    # Board Game mod adds a card reward to the boss relic screen
+    for i, choice in enumerate(choice_list):
+        if choice == "card_reward":
+            actions.append({"type": "pick_event_option", "label": "card_reward", "choice_index": i})
+
     actions.append({"type": "skip_boss_relic"})
 
     screen = {

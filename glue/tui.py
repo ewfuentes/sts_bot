@@ -599,7 +599,13 @@ class STSApp(App):
         if atype not in self.SIM_ACTIONS:
             return
         try:
-            self.sim.apply(json.dumps(action))
+            # Adapt translator action format to simulator's expected format
+            sim_action = dict(action)
+            if atype == "buy_relic" and isinstance(sim_action.get("relic"), dict):
+                sim_action["relic"] = sim_action["relic"]["id"]
+            if atype == "buy_potion" and isinstance(sim_action.get("potion"), dict):
+                sim_action["potion"] = sim_action["potion"]["id"]
+            self.sim.apply(json.dumps(sim_action))
         except BaseException as e:
             self._log(f"[sim] apply error: {e}")
 
@@ -612,7 +618,9 @@ class STSApp(App):
             self._log("[sim] No game state to sync")
             return
         try:
-            state_json = json.dumps(self.translated)
+            # Strip actions — translator format doesn't match simulator's Action enum
+            sim_input = {k: v for k, v in self.translated.items() if k != "actions"}
+            state_json = json.dumps(sim_input)
             self.sim = SimGameState.from_json(state_json)
             self._log("[sim] Synced — simulator loaded with live state")
         except Exception as e:
