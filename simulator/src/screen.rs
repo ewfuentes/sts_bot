@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::effects::Effect;
+use crate::effects::{Effect, HandSelectAction};
 use crate::map::MapNodeKind;
 use crate::types::{Card, Monster, Power};
 
@@ -43,10 +43,10 @@ pub enum Screen {
         player_powers: Vec<Power>,
         #[serde(default)]
         turn: u16,
-        /// Queue of effects waiting to execute. When non-empty, effects
-        /// drain until one needs a decision (pushes a sub-decision screen).
+        /// Queue of effects waiting to execute. Each entry is (effect, target_index).
+        /// Target is Some for single-target effects, None for AoE/self/untargeted.
         #[serde(skip)]
-        effect_queue: VecDeque<Effect>,
+        effect_queue: VecDeque<(Effect, Option<u8>)>,
     },
     CardReward {
         cards: Vec<Card>,
@@ -74,8 +74,16 @@ pub enum Screen {
         cards: Vec<Card>,
     },
     HandSelect {
+        min_cards: u8,
         max_cards: u8,
-        cards: Vec<Card>,
+        /// Each entry is (hand_index, card) — the hand_index refers to
+        /// the card's position in the combat hand.
+        cards: Vec<(u8, Card)>,
+        /// Hand indices selected so far (applied when screen resolves).
+        #[serde(skip)]
+        picked_indices: Vec<u8>,
+        #[serde(skip)]
+        action: HandSelectAction,
     },
     CustomScreen {
         screen_enum: String,

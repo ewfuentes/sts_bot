@@ -477,3 +477,151 @@ fn immolate_damages_all_and_adds_two_dazed() {
         assert!(matches!(state.current_screen(), Screen::CombatRewards { .. }));
     }
 }
+
+// ── ExhaustFromHand (effect queue + sub-decision) ──
+
+#[test]
+fn true_grit_blocks_then_pushes_hand_select() {
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL", true, false),
+        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
+        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+
+    // Should push HandSelect for exhaust choice
+    if let Screen::HandSelect { cards, min_cards, max_cards, action, .. } = state.current_screen() {
+        assert_eq!(*action, sts_simulator::effects::HandSelectAction::Exhaust);
+        assert_eq!(*min_cards, 1);
+        assert_eq!(*max_cards, 1);
+        assert_eq!(cards.len(), 2); // Strike and Defend remain
+    } else {
+        panic!("Expected HandSelect, got {:?}", state.current_screen());
+    }
+}
+
+#[test]
+fn true_grit_exhaust_pick_resolves() {
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL", true, false),
+        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
+        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+    state.apply(&Action::PickHandCard {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        choice_index: 0,
+    });
+
+    if let Screen::Combat { hand, exhaust_pile, player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 1);
+        assert_eq!(hand.len(), 1);
+        assert_eq!(hand[0].card.id, "BGDefend_R");
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(exhaust_pile[0].id, "BGStrike_R");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn burning_pact_exhausts_then_draws() {
+    let hand = vec![
+        make_hand_card("BGBurning Pact", 1, "SKILL", true, false),
+        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
+        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGBash", 2, "ATTACK"),
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGBurning Pact", 1, "SKILL", 0, None));
+    assert!(matches!(state.current_screen(), Screen::HandSelect { .. }));
+
+    // Exhaust Strike
+    state.apply(&Action::PickHandCard {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        choice_index: 0,
+    });
+
+    // Back in combat — Defend remains + drew 2 from queue continuation
+    if let Screen::Combat { hand, exhaust_pile, draw_pile, .. } = state.current_screen() {
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(exhaust_pile[0].id, "BGStrike_R");
+        assert_eq!(hand.len(), 3); // Defend + 2 drawn
+        assert_eq!(draw_pile.len(), 1); // 3 - 2 = 1
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn exhaust_auto_resolves_with_empty_hand() {
+    let hand = vec![
+        make_hand_card("BGBurning Pact", 1, "SKILL", true, false),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGBash", 2, "ATTACK"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGBurning Pact", 1, "SKILL", 0, None));
+
+    // Empty hand → auto-resolve, no HandSelect, drew 2 directly
+    if let Screen::Combat { hand, draw_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 2);
+        assert_eq!(draw_pile.len(), 0);
+    } else {
+        panic!("Expected Combat screen, got {:?}", state.current_screen());
+    }
+}

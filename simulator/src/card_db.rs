@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::effects::{Effect, EffectTarget, Pile};
+use crate::effects::{Effect, EffectTarget, HandSelectAction, Pile};
 
 /// How a card targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +209,18 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             id: "BGShrug It Off", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
             effects: &[Block(2), Draw(1)], exhaust: false, ethereal: false,
             upgraded_cost: None, upgraded_effects: Some(&[Block(3), Draw(1)]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
+        CardInfo {
+            id: "BGTrue Grit", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
+            effects: &[Block(1), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }], exhaust: false, ethereal: false,
+            upgraded_cost: None, upgraded_effects: Some(&[Block(2), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
+        CardInfo {
+            id: "BGBurning Pact", cost: 1, card_type: CardType::Skill, target: CardTarget::None,
+            effects: &[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(2)], exhaust: false, ethereal: false,
+            upgraded_cost: None, upgraded_effects: Some(&[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(3)]),
             upgraded_exhaust: None, upgraded_ethereal: None,
         },
         // BGSentinel excluded: has triggerOnExhaust (gain energy) not yet modeled

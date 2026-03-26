@@ -17,7 +17,19 @@ pub enum Effect {
         pile: Pile,
         count: u8,
     },
+    /// Player chooses card(s) from hand and applies an action to each.
+    SelectFromHand { min: u8, max: u8, action: HandSelectAction },
     Custom(&'static str),
+}
+
+/// What to do with cards selected from hand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HandSelectAction {
+    #[default]
+    Exhaust,
+    Discard,
+    Upgrade,
+    PutOnTopOfDraw,
 }
 
 /// Which pile to add a card to.

@@ -2,7 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
 use crate::card_db;
-use crate::effects::{Effect, EffectTarget, Pile};
+use crate::effects::{Effect, EffectTarget, HandSelectAction, Pile};
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
@@ -736,8 +736,9 @@ impl GameState {
                 self.set_screen(screen);
             }
             Action::PlayCard { hand_index, target_index, .. } => {
-                let target_idx = *target_index;
                 let hand_idx = *hand_index as usize;
+
+                let target = *target_index;
 
                 if let Some(Screen::Combat {
                     hand, discard_pile, exhaust_pile,
@@ -759,12 +760,12 @@ impl GameState {
                         *player_energy = player_energy.saturating_sub(cost as u8);
                     }
 
-                    // Queue card effects
+                    // Queue card effects with target
                     let effects = info
                         .map(|i| i.effective_effects(card.upgraded))
                         .unwrap_or(&[]);
                     for effect in effects {
-                        effect_queue.push_back(effect.clone());
+                        effect_queue.push_back((effect.clone(), target));
                     }
 
                     // Move card to appropriate pile
@@ -784,7 +785,7 @@ impl GameState {
                 }
 
                 // Drain the effect queue
-                self.drain_effect_queue(target_idx);
+                self.drain_effect_queue();
             }
             Action::EndTurn => {
                 if let Screen::Combat {
@@ -848,9 +849,33 @@ impl GameState {
                     *turn += 1;
                 }
             }
+            Action::PickHandCard { choice_index, .. } => {
+                let idx = *choice_index as usize;
+                let done = if let Screen::HandSelect {
+                    cards, max_cards, picked_indices, ..
+                } = self.current_screen_mut()
+                {
+                    if idx < cards.len() {
+                        let (hand_idx, _) = cards.remove(idx);
+                        picked_indices.push(hand_idx);
+                    }
+                    picked_indices.len() >= *max_cards as usize
+                } else {
+                    false
+                };
+
+                if done {
+                    self.resolve_hand_select();
+                    self.drain_effect_queue();
+                }
+            }
             Action::Skip => {
                 if matches!(self.current_screen(), Screen::Combat { .. }) {
                     self.finish_combat();
+                }
+                if matches!(self.current_screen(), Screen::HandSelect { .. }) {
+                    self.resolve_hand_select();
+                    self.drain_effect_queue();
                 }
             }
             Action::DiscardPotion { slot } => {
@@ -889,35 +914,21 @@ impl GameState {
     /// Drain the effect queue on the current Combat screen.
     /// Executes effects until the queue is empty or one needs a sub-decision.
     /// `target_index` is the target from the original PlayCard action.
-    fn drain_effect_queue(&mut self, target_index: Option<u8>) {
+    fn drain_effect_queue(&mut self) {
         loop {
-            // Pop next effect from queue
-            let effect = if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
+            // Pop next (effect, target) pair from queue
+            let entry = if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
                 effect_queue.pop_front()
             } else {
                 None
             };
 
-            let Some(effect) = effect else { break };
+            let Some((effect, target_index)) = entry else { break };
 
-            // Execute the effect directly
-            if let Some(Screen::Combat {
-                hand, draw_pile, discard_pile, exhaust_pile,
-                player_block, player_energy, player_powers, monsters,
-                effect_queue, ..
-            }) = self.screen.last_mut()
-            {
-                execute_effect(
-                    &effect, target_index, &mut self.hp,
-                    player_block, player_energy, player_powers,
-                    monsters, draw_pile, discard_pile, exhaust_pile, hand,
-                );
-
-                // Check for combat end after each effect (e.g. damage kills last monster)
-                if monsters.iter().all(|m| m.is_gone) {
-                    effect_queue.clear();
-                    break;
-                }
+            match self.execute_effect(&effect, target_index) {
+                EffectResult::Continue => {}
+                EffectResult::Paused => return,
+                EffectResult::CombatOver => break,
             }
         }
 
@@ -926,6 +937,188 @@ impl GameState {
             recalculate_playability(hand, *player_energy);
             if monsters.iter().all(|m| m.is_gone) {
                 self.finish_combat();
+            }
+        }
+    }
+
+    /// Execute a single effect. Returns whether to continue draining,
+    /// pause for a sub-decision, or stop because combat ended.
+    fn execute_effect(&mut self, effect: &Effect, target_index: Option<u8>) -> EffectResult {
+        match effect {
+            Effect::Damage(amount) => {
+                if let Some(idx) = target_index {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, .. }) = self.screen.last_mut() {
+                        if idx < monsters.len() && !monsters[idx].is_gone {
+                            apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                        }
+                    }
+                }
+            }
+            Effect::DamageAll(amount) => {
+                if let Some(Screen::Combat { monsters, .. }) = self.screen.last_mut() {
+                    for monster in monsters.iter_mut() {
+                        if !monster.is_gone {
+                            apply_damage_to_monster(monster, *amount as u16);
+                        }
+                    }
+                }
+            }
+            Effect::Block(amount) => {
+                if let Some(Screen::Combat { player_block, .. }) = self.screen.last_mut() {
+                    *player_block += *amount as u16;
+                }
+            }
+            Effect::ApplyPower { target, power_id, amount } => {
+                if let Some(Screen::Combat { player_powers, monsters, .. }) = self.screen.last_mut() {
+                    match target {
+                        EffectTarget::TargetEnemy => {
+                            if let Some(idx) = target_index {
+                                let idx = idx as usize;
+                                if idx < monsters.len() && !monsters[idx].is_gone {
+                                    apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
+                                }
+                            }
+                        }
+                        EffectTarget::_Self => {
+                            apply_power(player_powers, power_id, *amount as i32);
+                        }
+                        EffectTarget::AllEnemies => {
+                            for monster in monsters.iter_mut() {
+                                if !monster.is_gone {
+                                    apply_power(&mut monster.powers, power_id, *amount as i32);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Effect::Draw(count) => {
+                if let Some(Screen::Combat { hand, draw_pile, discard_pile, player_energy, .. }) = self.screen.last_mut() {
+                    for _ in 0..*count {
+                        if draw_pile.is_empty() && !discard_pile.is_empty() {
+                            draw_pile.append(discard_pile);
+                            draw_pile.reverse();
+                        }
+                        if let Some(card) = draw_pile.pop() {
+                            let info = card_db::lookup(&card.id);
+                            let energy = *player_energy;
+                            let is_playable = info
+                                .map(|i| {
+                                    let c = i.effective_cost(card.upgraded);
+                                    c >= 0 && c <= energy as i8
+                                })
+                                .unwrap_or(true);
+                            let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
+                            hand.push(HandCard { card, is_playable, has_target });
+                        }
+                    }
+                }
+            }
+            Effect::GainEnergy(amount) => {
+                if let Some(Screen::Combat { player_energy, .. }) = self.screen.last_mut() {
+                    *player_energy += amount;
+                }
+            }
+            Effect::LoseHP(amount) => {
+                self.hp = self.hp.saturating_sub(*amount);
+            }
+            Effect::AddCardToPile { card_id, pile, count } => {
+                if let Some(Screen::Combat { draw_pile, discard_pile, exhaust_pile, .. }) = self.screen.last_mut() {
+                    let new_card = Card {
+                        id: card_id.to_string(),
+                        name: card_id.to_string(),
+                        cost: card_db::lookup(card_id).map(|i| i.cost).unwrap_or(0),
+                        card_type: card_db::lookup(card_id)
+                            .map(|i| match i.card_type {
+                                card_db::CardType::Attack => "ATTACK",
+                                card_db::CardType::Skill => "SKILL",
+                                card_db::CardType::Power => "POWER",
+                                card_db::CardType::Status => "STATUS",
+                                card_db::CardType::Curse => "CURSE",
+                            })
+                            .unwrap_or("STATUS")
+                            .to_string(),
+                        upgraded: false,
+                    };
+                    let target_pile = match pile {
+                        Pile::Draw => draw_pile,
+                        Pile::Discard => discard_pile,
+                        Pile::Exhaust => exhaust_pile,
+                    };
+                    for _ in 0..*count {
+                        target_pile.push(new_card.clone());
+                    }
+                }
+            }
+            Effect::SelectFromHand { min, max, action } => {
+                if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, .. }) = self.screen.last_mut() {
+                    if hand.len() <= *min as usize {
+                        // Auto-resolve: not enough cards for a real choice
+                        let selected: Vec<HandCard> = hand.drain(..).collect();
+                        for hc in selected {
+                            apply_hand_select_action(*action, hc.card, discard_pile, exhaust_pile, draw_pile);
+                        }
+                        return EffectResult::Continue;
+                    }
+                    // Real choice — push HandSelect and pause
+                    let cards: Vec<(u8, Card)> = hand.iter().enumerate()
+                        .map(|(i, hc)| (i as u8, hc.card.clone())).collect();
+                    let action = *action;
+                    let min = *min;
+                    let max = *max;
+                    self.push_screen(Screen::HandSelect {
+                        min_cards: min,
+                        max_cards: max,
+                        cards,
+                        picked_indices: vec![],
+                        action,
+                    });
+                    return EffectResult::Paused;
+                }
+            }
+            Effect::Custom(_id) => {
+                // Not yet implemented
+            }
+        }
+
+        // Check for combat end after each effect
+        if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.screen.last_mut() {
+            if monsters.iter().all(|m| m.is_gone) {
+                effect_queue.clear();
+                return EffectResult::CombatOver;
+            }
+        }
+
+        EffectResult::Continue
+    }
+
+    /// Resolve a HandSelect screen: apply the action to all picked cards,
+    /// then pop the screen.
+    fn resolve_hand_select(&mut self) {
+        // Extract info from HandSelect before popping
+        let (action, mut picked) = if let Screen::HandSelect {
+            action, picked_indices, ..
+        } = self.current_screen()
+        {
+            (*action, picked_indices.clone())
+        } else {
+            return;
+        };
+
+        self.pop_screen();
+
+        // Remove picked cards from combat hand in reverse order (so indices stay valid)
+        picked.sort();
+        picked.reverse();
+
+        if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, .. }) = self.screen.last_mut() {
+            for hi in picked {
+                let hi = hi as usize;
+                if hi < hand.len() {
+                    let hc = hand.remove(hi);
+                    apply_hand_select_action(action, hc.card, discard_pile, exhaust_pile, draw_pile);
+                }
             }
         }
     }
@@ -1077,6 +1270,9 @@ impl GameState {
             Screen::Combat { hand, monsters, effect_queue, .. } => {
                 assert!(effect_queue.is_empty(), "Effect queue should be empty when generating actions");
                 combat_actions(hand, monsters)
+            }
+            Screen::HandSelect { cards, picked_indices, min_cards, max_cards, .. } => {
+                hand_select_actions(cards, picked_indices.len() as u8, *min_cards, *max_cards)
             }
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
@@ -1295,119 +1491,10 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster]) -> Vec<Action> {
     actions
 }
 
-/// Apply a single card effect to the combat state.
-/// Power modifiers (Strength, Weak, Vulnerable) are not yet applied.
-#[allow(clippy::too_many_arguments)]
-fn execute_effect(
-    effect: &Effect,
-    target_index: Option<u8>,
-    player_hp: &mut u16,
-    player_block: &mut u16,
-    player_energy: &mut u8,
-    player_powers: &mut Vec<crate::types::Power>,
-    monsters: &mut Vec<crate::types::Monster>,
-    draw_pile: &mut Vec<Card>,
-    discard_pile: &mut Vec<Card>,
-    exhaust_pile: &mut Vec<Card>,
-    hand: &mut Vec<HandCard>,
-) {
-    match effect {
-        Effect::Damage(amount) => {
-            if let Some(idx) = target_index {
-                let idx = idx as usize;
-                if idx < monsters.len() && !monsters[idx].is_gone {
-                    apply_damage_to_monster(&mut monsters[idx], *amount as u16);
-                }
-            }
-        }
-        Effect::DamageAll(amount) => {
-            for monster in monsters.iter_mut() {
-                if !monster.is_gone {
-                    apply_damage_to_monster(monster, *amount as u16);
-                }
-            }
-        }
-        Effect::Block(amount) => {
-            *player_block += *amount as u16;
-        }
-        Effect::ApplyPower { target, power_id, amount } => {
-            match target {
-                EffectTarget::TargetEnemy => {
-                    if let Some(idx) = target_index {
-                        let idx = idx as usize;
-                        if idx < monsters.len() && !monsters[idx].is_gone {
-                            apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
-                        }
-                    }
-                }
-                EffectTarget::_Self => {
-                    apply_power(player_powers, power_id, *amount as i32);
-                }
-                EffectTarget::AllEnemies => {
-                    for monster in monsters.iter_mut() {
-                        if !monster.is_gone {
-                            apply_power(&mut monster.powers, power_id, *amount as i32);
-                        }
-                    }
-                }
-            }
-        }
-        Effect::Draw(count) => {
-            for _ in 0..*count {
-                if draw_pile.is_empty() && !discard_pile.is_empty() {
-                    draw_pile.append(discard_pile);
-                    draw_pile.reverse();
-                }
-                if let Some(card) = draw_pile.pop() {
-                    let info = card_db::lookup(&card.id);
-                    let energy = *player_energy;
-                    let is_playable = info
-                        .map(|i| {
-                            let c = i.effective_cost(card.upgraded);
-                            c >= 0 && c <= energy as i8
-                        })
-                        .unwrap_or(true);
-                    let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
-                    hand.push(HandCard { card, is_playable, has_target });
-                }
-            }
-        }
-        Effect::GainEnergy(amount) => {
-            *player_energy += amount;
-        }
-        Effect::LoseHP(amount) => {
-            *player_hp = player_hp.saturating_sub(*amount);
-        }
-        Effect::AddCardToPile { card_id, pile, count } => {
-            let new_card = Card {
-                id: card_id.to_string(),
-                name: card_id.to_string(),
-                cost: card_db::lookup(card_id).map(|i| i.cost).unwrap_or(0),
-                card_type: card_db::lookup(card_id)
-                    .map(|i| match i.card_type {
-                        card_db::CardType::Attack => "ATTACK",
-                        card_db::CardType::Skill => "SKILL",
-                        card_db::CardType::Power => "POWER",
-                        card_db::CardType::Status => "STATUS",
-                        card_db::CardType::Curse => "CURSE",
-                    })
-                    .unwrap_or("STATUS")
-                    .to_string(),
-                upgraded: false,
-            };
-            let target_pile = match pile {
-                Pile::Draw => draw_pile,
-                Pile::Discard => discard_pile,
-                Pile::Exhaust => exhaust_pile,
-            };
-            for _ in 0..*count {
-                target_pile.push(new_card.clone());
-            }
-        }
-        Effect::Custom(_id) => {
-            // Not yet implemented — custom effects are no-ops for now
-        }
-    }
+enum EffectResult {
+    Continue,
+    Paused,
+    CombatOver,
 }
 
 /// Deal damage to a monster, accounting for its block.
@@ -1442,6 +1529,39 @@ fn recalculate_playability(hand: &mut [HandCard], energy: u8) {
             .map(|i| i.effective_cost(hc.card.upgraded))
             .unwrap_or(hc.card.cost);
         hc.is_playable = card_cost >= 0 && card_cost <= energy as i8;
+    }
+}
+
+fn hand_select_actions(cards: &[(u8, Card)], cards_picked: u8, min_cards: u8, max_cards: u8) -> Vec<Action> {
+    let mut actions = Vec::new();
+    if cards_picked < max_cards {
+        for (i, (_hand_idx, card)) in cards.iter().enumerate() {
+            actions.push(Action::PickHandCard {
+                card: card.clone(),
+                choice_index: i as u8,
+            });
+        }
+    }
+    if cards_picked >= min_cards {
+        actions.push(Action::Skip);
+    }
+    actions
+}
+
+fn apply_hand_select_action(
+    action: HandSelectAction,
+    card: Card,
+    discard_pile: &mut Vec<Card>,
+    exhaust_pile: &mut Vec<Card>,
+    draw_pile: &mut Vec<Card>,
+) {
+    match action {
+        HandSelectAction::Exhaust => exhaust_pile.push(card),
+        HandSelectAction::Discard => discard_pile.push(card),
+        HandSelectAction::PutOnTopOfDraw => draw_pile.push(card),
+        HandSelectAction::Upgrade => {
+            // TODO: upgrade the card and put it back in hand
+        }
     }
 }
 
