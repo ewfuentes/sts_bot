@@ -1,5 +1,3 @@
-use std::collections::VecDeque;
-
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
@@ -725,9 +723,9 @@ impl GameState {
                 self.floor += 1;
                 let kind = *kind;
                 let screen = match kind {
-                    MapNodeKind::Monster => Screen::Combat { encounter: "UNKNOWN_MONSTER".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0, effect_queue: VecDeque::new() },
-                    MapNodeKind::Elite => Screen::Combat { encounter: "UNKNOWN_ELITE".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0, effect_queue: VecDeque::new() },
-                    MapNodeKind::Boss => Screen::Combat { encounter: "UNKNOWN_BOSS".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0, effect_queue: VecDeque::new() },
+                    MapNodeKind::Monster => Screen::new_combat("UNKNOWN_MONSTER"),
+                    MapNodeKind::Elite => Screen::new_combat("UNKNOWN_ELITE"),
+                    MapNodeKind::Boss => Screen::new_combat("UNKNOWN_BOSS"),
                     MapNodeKind::Rest => Screen::Rest {
                         options: vec!["rest".to_string(), "smith".to_string()],
                     },
@@ -905,7 +903,8 @@ impl GameState {
             // Execute the effect directly
             if let Some(Screen::Combat {
                 hand, draw_pile, discard_pile, exhaust_pile,
-                player_block, player_energy, player_powers, monsters, ..
+                player_block, player_energy, player_powers, monsters,
+                effect_queue, ..
             }) = self.screen.last_mut()
             {
                 execute_effect(
@@ -913,10 +912,16 @@ impl GameState {
                     player_block, player_energy, player_powers,
                     monsters, draw_pile, discard_pile, exhaust_pile, hand,
                 );
+
+                // Check for combat end after each effect (e.g. damage kills last monster)
+                if monsters.iter().all(|m| m.is_gone) {
+                    effect_queue.clear();
+                    break;
+                }
             }
         }
 
-        // Queue drained — finalize
+        // Finalize
         if let Some(Screen::Combat { hand, player_energy, monsters, .. }) = self.screen.last_mut() {
             recalculate_playability(hand, *player_energy);
             if monsters.iter().all(|m| m.is_gone) {
@@ -1070,11 +1075,8 @@ impl GameState {
             }
             Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
             Screen::Combat { hand, monsters, effect_queue, .. } => {
-                if effect_queue.is_empty() {
-                    combat_actions(hand, monsters)
-                } else {
-                    vec![] // queue is draining, no player actions
-                }
+                assert!(effect_queue.is_empty(), "Effect queue should be empty when generating actions");
+                combat_actions(hand, monsters)
             }
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
