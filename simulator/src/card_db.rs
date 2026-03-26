@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::effects::{Effect, EffectTarget, HandSelectAction, Pile};
+use crate::effects::{DamageSource, Effect, EffectTarget, HandSelectAction, Pile};
 
 /// How a card targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +194,22 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             exhaust: false, ethereal: false,
             upgraded_cost: None,
             upgraded_effects: Some(&[DamageAll(7), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
+        CardInfo {
+            id: "BGBody Slam", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
+            effects: &[DamageBasedOn(DamageSource::CurrentBlock)], exhaust: false, ethereal: false,
+            upgraded_cost: Some(0), upgraded_effects: None,
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
+        CardInfo {
+            id: "BGRampage", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
+            effects: &[DamageBasedOn(DamageSource::ExhaustPileSize)], exhaust: false, ethereal: false,
+            upgraded_cost: None,
+            upgraded_effects: Some(&[
+                SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust },
+                DamageBasedOn(DamageSource::ExhaustPileSize),
+            ]),
             upgraded_exhaust: None, upgraded_ethereal: None,
         },
         // ── Verified skills ──

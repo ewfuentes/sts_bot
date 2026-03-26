@@ -2,7 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
 use crate::card_db;
-use crate::effects::{Effect, EffectTarget, HandSelectAction, Pile};
+use crate::effects::{DamageSource, Effect, EffectTarget, HandSelectAction, Pile};
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
@@ -960,6 +960,20 @@ impl GameState {
                     for monster in monsters.iter_mut() {
                         if !monster.is_gone {
                             apply_damage_to_monster(monster, *amount as u16);
+                        }
+                    }
+                }
+            }
+            Effect::DamageBasedOn(source) => {
+                if let Some(idx) = target_index {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, player_block, exhaust_pile, .. }) = self.screen.last_mut() {
+                        let amount = match source {
+                            DamageSource::ExhaustPileSize => exhaust_pile.len() as u16,
+                            DamageSource::CurrentBlock => *player_block,
+                        };
+                        if idx < monsters.len() && !monsters[idx].is_gone {
+                            apply_damage_to_monster(&mut monsters[idx], amount);
                         }
                     }
                 }
