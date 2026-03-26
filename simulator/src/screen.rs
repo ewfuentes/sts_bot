@@ -1,5 +1,8 @@
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Serialize};
 
+use crate::effects::Effect;
 use crate::map::MapNodeKind;
 use crate::types::{Card, Monster, Power};
 
@@ -40,6 +43,10 @@ pub enum Screen {
         player_powers: Vec<Power>,
         #[serde(default)]
         turn: u16,
+        /// Queue of effects waiting to execute. When non-empty, effects
+        /// drain until one needs a decision (pushes a sub-decision screen).
+        #[serde(skip)]
+        effect_queue: VecDeque<Effect>,
     },
     CardReward {
         cards: Vec<Card>,
@@ -87,6 +94,24 @@ pub enum Screen {
     Unknown {
         raw_screen_type: String,
     },
+}
+
+impl Screen {
+    pub fn new_combat(encounter: impl Into<String>) -> Self {
+        Screen::Combat {
+            encounter: encounter.into(),
+            monsters: vec![],
+            hand: vec![],
+            draw_pile: vec![],
+            discard_pile: vec![],
+            exhaust_pile: vec![],
+            player_block: 0,
+            player_energy: 0,
+            player_powers: vec![],
+            turn: 0,
+            effect_queue: VecDeque::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

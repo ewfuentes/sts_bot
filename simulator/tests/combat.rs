@@ -22,6 +22,7 @@ fn deserialize_combat_state() {
         player_energy,
         player_powers,
         turn,
+        ..
     } = state.current_screen()
     {
         assert_eq!(encounter, "BGJawWorm");
