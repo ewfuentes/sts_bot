@@ -2,7 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
 use crate::card_db;
-use crate::effects::{Effect, EffectTarget};
+use crate::effects::{Effect, EffectTarget, Pile};
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
@@ -791,6 +791,7 @@ impl GameState {
                             monsters,
                             draw_pile,
                             discard_pile,
+                            exhaust_pile,
                             hand,
                         );
                     }
@@ -1294,6 +1295,7 @@ fn execute_effect(
     monsters: &mut Vec<crate::types::Monster>,
     draw_pile: &mut Vec<Card>,
     discard_pile: &mut Vec<Card>,
+    exhaust_pile: &mut Vec<Card>,
     hand: &mut Vec<HandCard>,
 ) {
     match effect {
@@ -1362,6 +1364,32 @@ fn execute_effect(
         }
         Effect::LoseHP(amount) => {
             *player_hp = player_hp.saturating_sub(*amount);
+        }
+        Effect::AddCardToPile { card_id, pile, count } => {
+            let new_card = Card {
+                id: card_id.to_string(),
+                name: card_id.to_string(),
+                cost: card_db::lookup(card_id).map(|i| i.cost).unwrap_or(0),
+                card_type: card_db::lookup(card_id)
+                    .map(|i| match i.card_type {
+                        card_db::CardType::Attack => "ATTACK",
+                        card_db::CardType::Skill => "SKILL",
+                        card_db::CardType::Power => "POWER",
+                        card_db::CardType::Status => "STATUS",
+                        card_db::CardType::Curse => "CURSE",
+                    })
+                    .unwrap_or("STATUS")
+                    .to_string(),
+                upgraded: false,
+            };
+            let target_pile = match pile {
+                Pile::Draw => draw_pile,
+                Pile::Discard => discard_pile,
+                Pile::Exhaust => exhaust_pile,
+            };
+            for _ in 0..*count {
+                target_pile.push(new_card.clone());
+            }
         }
         Effect::Custom(_id) => {
             // Not yet implemented — custom effects are no-ops for now

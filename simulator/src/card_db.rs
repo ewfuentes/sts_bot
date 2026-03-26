@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::effects::{Effect, EffectTarget};
+use crate::effects::{Effect, EffectTarget, Pile};
 
 /// How a card targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -180,7 +180,31 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             upgraded_cost: None, upgraded_effects: Some(&[Damage(5)]),
             upgraded_exhaust: None, upgraded_ethereal: None,
         },
+        CardInfo {
+            id: "BGWild Strike", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
+            effects: &[Damage(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }],
+            exhaust: false, ethereal: false,
+            upgraded_cost: None,
+            upgraded_effects: Some(&[Damage(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
+        CardInfo {
+            id: "BGImmolate", cost: 2, card_type: CardType::Attack, target: CardTarget::AllEnemy,
+            effects: &[DamageAll(5), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }],
+            exhaust: false, ethereal: false,
+            upgraded_cost: None,
+            upgraded_effects: Some(&[DamageAll(7), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
         // ── Verified skills ──
+        CardInfo {
+            id: "BGPower Through", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
+            effects: &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }],
+            exhaust: false, ethereal: false,
+            upgraded_cost: None,
+            upgraded_effects: Some(&[Block(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
         CardInfo {
             id: "BGShrug It Off", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
             effects: &[Block(2), Draw(1)], exhaust: false, ethereal: false,
