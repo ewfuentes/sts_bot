@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
@@ -723,9 +725,9 @@ impl GameState {
                 self.floor += 1;
                 let kind = *kind;
                 let screen = match kind {
-                    MapNodeKind::Monster => Screen::Combat { encounter: "UNKNOWN_MONSTER".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0 },
-                    MapNodeKind::Elite => Screen::Combat { encounter: "UNKNOWN_ELITE".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0 },
-                    MapNodeKind::Boss => Screen::Combat { encounter: "UNKNOWN_BOSS".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0 },
+                    MapNodeKind::Monster => Screen::Combat { encounter: "UNKNOWN_MONSTER".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0, effect_queue: VecDeque::new() },
+                    MapNodeKind::Elite => Screen::Combat { encounter: "UNKNOWN_ELITE".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0, effect_queue: VecDeque::new() },
+                    MapNodeKind::Boss => Screen::Combat { encounter: "UNKNOWN_BOSS".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0, effect_queue: VecDeque::new() },
                     MapNodeKind::Rest => Screen::Rest {
                         options: vec!["rest".to_string(), "smith".to_string()],
                     },
@@ -739,64 +741,41 @@ impl GameState {
                 let target_idx = *target_index;
                 let hand_idx = *hand_index as usize;
 
-                // Extract card info before mutable borrow
-                let (card, effects, is_power, does_exhaust, cost) = {
-                    if let Screen::Combat { hand, .. } = self.current_screen() {
-                        if hand_idx >= hand.len() {
-                            return;
-                        }
-                        let card = hand[hand_idx].card.clone();
-                        let info = card_db::lookup(&card.id);
-                        let effects: Vec<Effect> = info
-                            .map(|i| i.effective_effects(card.upgraded).to_vec())
-                            .unwrap_or_default();
-                        let is_power = info
-                            .map(|i| i.card_type == card_db::CardType::Power)
-                            .unwrap_or(card.card_type == "POWER");
-                        let does_exhaust = info
-                            .map(|i| i.does_exhaust(card.upgraded))
-                            .unwrap_or(false);
-                        let cost = info
-                            .map(|i| i.effective_cost(card.upgraded))
-                            .unwrap_or(card.cost);
-                        (card, effects, is_power, does_exhaust, cost)
-                    } else {
-                        return;
-                    }
-                };
-
-                // Access screen fields directly to allow borrowing self.hp separately
                 if let Some(Screen::Combat {
-                    hand, draw_pile, discard_pile, exhaust_pile,
-                    player_energy, player_block, player_powers, monsters, ..
+                    hand, discard_pile, exhaust_pile,
+                    player_energy, effect_queue, ..
                 }) = self.screen.last_mut()
                 {
-                    // Remove card from hand
-                    hand.remove(hand_idx);
+                    if hand_idx >= hand.len() {
+                        return;
+                    }
+                    let hc = hand.remove(hand_idx);
+                    let card = hc.card;
+                    let info = card_db::lookup(&card.id);
 
                     // Deduct energy
+                    let cost = info
+                        .map(|i| i.effective_cost(card.upgraded))
+                        .unwrap_or(card.cost);
                     if cost >= 0 {
                         *player_energy = player_energy.saturating_sub(cost as u8);
                     }
 
-                    // Execute effects
-                    for effect in &effects {
-                        execute_effect(
-                            effect,
-                            target_idx,
-                            &mut self.hp,
-                            player_block,
-                            player_energy,
-                            player_powers,
-                            monsters,
-                            draw_pile,
-                            discard_pile,
-                            exhaust_pile,
-                            hand,
-                        );
+                    // Queue card effects
+                    let effects = info
+                        .map(|i| i.effective_effects(card.upgraded))
+                        .unwrap_or(&[]);
+                    for effect in effects {
+                        effect_queue.push_back(effect.clone());
                     }
 
                     // Move card to appropriate pile
+                    let is_power = info
+                        .map(|i| i.card_type == card_db::CardType::Power)
+                        .unwrap_or(card.card_type == "POWER");
+                    let does_exhaust = info
+                        .map(|i| i.does_exhaust(card.upgraded))
+                        .unwrap_or(false);
                     if is_power {
                         // Powers are consumed
                     } else if does_exhaust {
@@ -804,21 +783,10 @@ impl GameState {
                     } else {
                         discard_pile.push(card);
                     }
-
-                    // Recalculate is_playable for remaining hand cards
-                    let energy = *player_energy;
-                    for hc in hand.iter_mut() {
-                        let card_cost = card_db::lookup(&hc.card.id)
-                            .map(|i| i.effective_cost(hc.card.upgraded))
-                            .unwrap_or(hc.card.cost);
-                        hc.is_playable = card_cost >= 0 && card_cost <= energy as i8;
-                    }
-
-                    // Check if all monsters are dead
-                    if monsters.iter().all(|m| m.is_gone) {
-                        self.finish_combat();
-                    }
                 }
+
+                // Drain the effect queue
+                self.drain_effect_queue(target_idx);
             }
             Action::EndTurn => {
                 if let Screen::Combat {
@@ -916,6 +884,43 @@ impl GameState {
                 self.set_screen(Screen::Complete);
             } else {
                 self.set_screen(Screen::CombatRewards { rewards: new_rewards });
+            }
+        }
+    }
+
+    /// Drain the effect queue on the current Combat screen.
+    /// Executes effects until the queue is empty or one needs a sub-decision.
+    /// `target_index` is the target from the original PlayCard action.
+    fn drain_effect_queue(&mut self, target_index: Option<u8>) {
+        loop {
+            // Pop next effect from queue
+            let effect = if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
+                effect_queue.pop_front()
+            } else {
+                None
+            };
+
+            let Some(effect) = effect else { break };
+
+            // Execute the effect directly
+            if let Some(Screen::Combat {
+                hand, draw_pile, discard_pile, exhaust_pile,
+                player_block, player_energy, player_powers, monsters, ..
+            }) = self.screen.last_mut()
+            {
+                execute_effect(
+                    &effect, target_index, &mut self.hp,
+                    player_block, player_energy, player_powers,
+                    monsters, draw_pile, discard_pile, exhaust_pile, hand,
+                );
+            }
+        }
+
+        // Queue drained — finalize
+        if let Some(Screen::Combat { hand, player_energy, monsters, .. }) = self.screen.last_mut() {
+            recalculate_playability(hand, *player_energy);
+            if monsters.iter().all(|m| m.is_gone) {
+                self.finish_combat();
             }
         }
     }
@@ -1064,7 +1069,13 @@ impl GameState {
                 shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
             }
             Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
-            Screen::Combat { hand, monsters, .. } => combat_actions(hand, monsters),
+            Screen::Combat { hand, monsters, effect_queue, .. } => {
+                if effect_queue.is_empty() {
+                    combat_actions(hand, monsters)
+                } else {
+                    vec![] // queue is draining, no player actions
+                }
+            }
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
@@ -1422,3 +1433,13 @@ fn apply_power(powers: &mut Vec<crate::types::Power>, power_id: &str, amount: i3
         });
     }
 }
+
+fn recalculate_playability(hand: &mut [HandCard], energy: u8) {
+    for hc in hand.iter_mut() {
+        let card_cost = card_db::lookup(&hc.card.id)
+            .map(|i| i.effective_cost(hc.card.upgraded))
+            .unwrap_or(hc.card.cost);
+        hc.is_playable = card_cost >= 0 && card_cost <= energy as i8;
+    }
+}
+
