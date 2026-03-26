@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::map::MapNodeKind;
-use crate::types::Card;
+use crate::types::{Card, Monster, Power};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -22,6 +22,24 @@ pub enum Screen {
     Combat {
         #[serde(default)]
         encounter: String,
+        #[serde(default)]
+        monsters: Vec<Monster>,
+        #[serde(default)]
+        hand: Vec<HandCard>,
+        #[serde(default)]
+        draw_pile: Vec<Card>,
+        #[serde(default)]
+        discard_pile: Vec<Card>,
+        #[serde(default)]
+        exhaust_pile: Vec<Card>,
+        #[serde(default)]
+        player_block: u16,
+        #[serde(default)]
+        player_energy: u8,
+        #[serde(default)]
+        player_powers: Vec<Power>,
+        #[serde(default)]
+        turn: u16,
     },
     CardReward {
         cards: Vec<Card>,
@@ -139,4 +157,14 @@ pub struct ShopPotion {
     pub id: String,
     pub name: String,
     pub price: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandCard {
+    #[serde(flatten)]
+    pub card: Card,
+    #[serde(default)]
+    pub is_playable: bool,
+    #[serde(default)]
+    pub has_target: bool,
 }

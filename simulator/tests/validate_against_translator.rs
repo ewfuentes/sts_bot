@@ -54,6 +54,9 @@ fn action_type(action: &Action) -> &str {
         Action::PickGridCard { .. } => "pick_grid_card",
         Action::PickHandCard { .. } => "pick_hand_card",
         Action::PickCustomScreenOption { .. } => "pick_custom_screen_option",
+        Action::PlayCard { .. } => "play_card",
+        Action::EndTurn => "end_turn",
+        Action::DiscardPotion { .. } => "discard_potion",
         Action::Proceed => "proceed",
         Action::Skip => "skip",
     }

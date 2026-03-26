@@ -672,7 +672,14 @@ def _translate_game_over(screen_state, game):
 def _translate_combat(game):
     combat = game.get("combat_state", {})
 
-    hand = [_translate_card(c) for c in combat.get("hand", [])]
+    raw_hand = combat.get("hand", [])
+    hand = []
+    for c in raw_hand:
+        hc = _translate_card(c)
+        hc["is_playable"] = c.get("is_playable", False)
+        hc["has_target"] = c.get("has_target", False)
+        hand.append(hc)
+
     monsters = [
         {
             "id": m["id"],
@@ -692,16 +699,14 @@ def _translate_combat(game):
 
     actions = []
     for i, card in enumerate(hand):
-        is_playable = combat["hand"][i].get("is_playable", False)
-        if not is_playable:
+        if not card["is_playable"]:
             continue
-        has_target = combat["hand"][i].get("has_target", False)
-        if has_target:
+        if card["has_target"]:
             for j, monster in enumerate(monsters):
                 if not monster["is_gone"]:
                     actions.append({
                         "type": "play_card",
-                        "card": card,
+                        "card": _translate_card(raw_hand[i]),
                         "hand_index": i,
                         "target_index": j,
                         "target_name": monster["name"],
@@ -709,7 +714,7 @@ def _translate_combat(game):
         else:
             actions.append({
                 "type": "play_card",
-                "card": card,
+                "card": _translate_card(raw_hand[i]),
                 "hand_index": i,
             })
 
@@ -717,30 +722,28 @@ def _translate_combat(game):
 
     screen = {
         "type": "combat",
+        "encounter": game.get("room_type", ""),
         "hand": hand,
         "monsters": monsters,
-        "player": {
-            "hp": player.get("current_hp"),
-            "block": player.get("block", 0),
-            "energy": player.get("energy"),
-            "powers": [
-                {"id": p["id"], "amount": p.get("amount", 0)}
-                for p in player.get("powers", [])
-            ],
-            "orbs": [
-                {
-                    "name": o.get("name", "?"),
-                    "id": o.get("id", "?"),
-                    "passive_amount": o.get("passive_amount", 0),
-                    "evoke_amount": o.get("evoke_amount", 0),
-                }
-                for o in player.get("orbs", [])
-            ],
-        },
-        "draw_pile_count": len(combat.get("draw_pile", [])),
-        "discard_pile_count": len(combat.get("discard_pile", [])),
-        "exhaust_pile_count": len(combat.get("exhaust_pile", [])),
-        "turn": combat.get("turn"),
+        "draw_pile": [_translate_card(c) for c in combat.get("draw_pile", [])],
+        "discard_pile": [_translate_card(c) for c in combat.get("discard_pile", [])],
+        "exhaust_pile": [_translate_card(c) for c in combat.get("exhaust_pile", [])],
+        "player_block": player.get("block", 0),
+        "player_energy": player.get("energy", 0),
+        "player_powers": [
+            {"id": p["id"], "amount": p.get("amount", 0)}
+            for p in player.get("powers", [])
+        ],
+        "player_orbs": [
+            {
+                "name": o.get("name", "?"),
+                "id": o.get("id", "?"),
+                "passive_amount": o.get("passive_amount", 0),
+                "evoke_amount": o.get("evoke_amount", 0),
+            }
+            for o in player.get("orbs", [])
+        ],
+        "turn": combat.get("turn", 0),
     }
 
     return screen, actions

@@ -80,6 +80,15 @@ pub enum Action {
         label: String,
         choice_index: u8,
     },
+    PlayCard {
+        card: Card,
+        hand_index: u8,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_index: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_name: Option<String>,
+    },
+    EndTurn,
     DiscardPotion {
         slot: u8,
     },
@@ -109,6 +118,11 @@ impl Action {
             Action::PickGridCard { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickHandCard { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickCustomScreenOption { choice_index, .. } => format!("choose {}", choice_index),
+            Action::PlayCard { hand_index, target_index, .. } => match target_index {
+                Some(t) => format!("play {} {}", hand_index + 1, t),
+                None => format!("play {}", hand_index + 1),
+            },
+            Action::EndTurn => "end".to_string(),
             Action::DiscardPotion { slot } => format!("potion discard {}", slot),
             Action::Proceed => "proceed".to_string(),
             Action::Skip => "skip".to_string(),

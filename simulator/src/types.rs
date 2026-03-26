@@ -27,3 +27,32 @@ pub struct Potion {
     pub id: String,
     pub name: String,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Power {
+    pub id: String,
+    pub amount: i32,
+}
+
+fn default_hits() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Monster {
+    pub id: String,
+    pub name: String,
+    pub hp: u16,
+    pub max_hp: u16,
+    #[serde(default)]
+    pub block: u16,
+    #[serde(default)]
+    pub intent: String,
+    pub damage: Option<i16>,
+    #[serde(default = "default_hits")]
+    pub hits: u8,
+    #[serde(default)]
+    pub powers: Vec<Power>,
+    #[serde(default)]
+    pub is_gone: bool,
+}
