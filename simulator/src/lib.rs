@@ -11,6 +11,6 @@ mod types;
 
 pub use action::Action;
 pub use map::{ActMap, MapNode, MapNodeKind};
-pub use screen::{MapChoice, Screen};
+pub use screen::{HandCard, MapChoice, Screen};
 pub use state::{GameState, RewardPools};
-pub use types::{Card, Potion, Relic};
+pub use types::{Card, Monster, Power, Potion, Relic};

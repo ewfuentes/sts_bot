@@ -243,17 +243,16 @@ class ScreenPanel(Static):
         self.update("\n".join(lines))
 
     def _render_combat(self, screen):
-        player = screen.get("player", {})
         lines = [
             f"=== Combat ===  "
-            f"Energy: {player.get('energy', '?')}  "
-            f"Block: {player.get('block', 0)}  "
+            f"Energy: {screen.get('player_energy', '?')}  "
+            f"Block: {screen.get('player_block', 0)}  "
             f"Turn: {screen.get('turn', '?')}",
             "",
         ]
 
         # Orbs
-        orbs = player.get("orbs", [])
+        orbs = screen.get("player_orbs", [])
         if orbs:
             orb_strs = []
             for o in orbs:
@@ -264,7 +263,7 @@ class ScreenPanel(Static):
             lines.append(f"Orbs: {', '.join(orb_strs)}")
 
         # Player powers
-        powers = player.get("powers", [])
+        powers = screen.get("player_powers", [])
         if powers:
             pstr = ", ".join(f"{p['id']}({p['amount']})" for p in powers)
             lines.append(f"Buffs: {pstr}")
@@ -299,11 +298,15 @@ class ScreenPanel(Static):
             upgraded = "+" if card.get("upgraded") else ""
             lines.append(f"  {card['name']}{upgraded} (cost {card['cost']}, {card['type']})")
 
+        # Piles
+        draw_pile = screen.get("draw_pile", [])
+        discard_pile = screen.get("discard_pile", [])
+        exhaust_pile = screen.get("exhaust_pile", [])
         lines.append("")
         lines.append(
-            f"Draw: {screen.get('draw_pile_count', '?')}  "
-            f"Discard: {screen.get('discard_pile_count', '?')}  "
-            f"Exhaust: {screen.get('exhaust_pile_count', '?')}"
+            f"Draw: {len(draw_pile)}  "
+            f"Discard: {len(discard_pile)}  "
+            f"Exhaust: {len(exhaust_pile)}"
         )
 
         return lines
@@ -379,6 +382,7 @@ class STSApp(App):
         ("s", "sim_sync", "Sync sim"),
         ("v", "sim_verify", "Verify sim"),
         ("i", "sim_inspect", "Inspect sim"),
+        ("a", "sim_actions", "Sim actions"),
     ]
 
     # Actions the simulator knows how to apply
@@ -659,11 +663,95 @@ class STSApp(App):
             live_relics = sorted(r["id"] for r in live.get("relics", []))
             if sim_relics != live_relics:
                 diffs.append(f"  relics: sim={sim_relics} live={live_relics}")
+            # Compare potions
+            sim_potions = [p["id"] if p else None for p in sim_state.get("potions", [])]
+            live_potions = [p["id"] if p else None for p in live.get("potions", [])]
+            if sim_potions != live_potions:
+                diffs.append(f"  potions: sim={sim_potions} live={live_potions}")
             # Compare screen type
-            sim_screen = sim_state.get("screen", {}).get("type", "?")
-            live_screen = live.get("screen", {}).get("type", "?")
-            if sim_screen != live_screen:
-                diffs.append(f"  screen: sim={sim_screen} live={live_screen}")
+            sim_screen = sim_state.get("screen", {})
+            live_screen = live.get("screen", {})
+            sim_stype = sim_screen.get("type", "?")
+            live_stype = live_screen.get("type", "?")
+            if sim_stype != live_stype:
+                diffs.append(f"  screen: sim={sim_stype} live={live_stype}")
+            # Combat-specific comparisons
+            elif sim_stype == "combat":
+                # Energy / block / turn
+                for key in ("player_energy", "player_block", "turn"):
+                    sv = sim_screen.get(key)
+                    lv = live_screen.get(key)
+                    if sv != lv:
+                        diffs.append(f"  {key}: sim={sv} live={lv}")
+                # Player powers
+                sim_pp = sorted((p["id"], p["amount"]) for p in sim_screen.get("player_powers", []))
+                live_pp = sorted((p["id"], p["amount"]) for p in live_screen.get("player_powers", []))
+                if sim_pp != live_pp:
+                    diffs.append(f"  player_powers: sim={sim_pp} live={live_pp}")
+                # Monsters
+                sim_monsters = sim_screen.get("monsters", [])
+                live_monsters = live_screen.get("monsters", [])
+                if len(sim_monsters) != len(live_monsters):
+                    diffs.append(f"  monster count: sim={len(sim_monsters)} live={len(live_monsters)}")
+                else:
+                    for i, (sm, lm) in enumerate(zip(sim_monsters, live_monsters)):
+                        prefix = f"  monster[{i}] {lm.get('name', '?')}"
+                        for key in ("hp", "max_hp", "block", "intent", "is_gone"):
+                            sv = sm.get(key)
+                            lv = lm.get(key)
+                            if sv != lv:
+                                diffs.append(f"  {prefix} {key}: sim={sv} live={lv}")
+                        sm_mp = sorted((p["id"], p["amount"]) for p in sm.get("powers", []))
+                        lm_mp = sorted((p["id"], p["amount"]) for p in lm.get("powers", []))
+                        if sm_mp != lm_mp:
+                            diffs.append(f"  {prefix} powers: sim={sm_mp} live={lm_mp}")
+                # Hand
+                sim_hand = [(c["id"], c.get("upgraded")) for c in sim_screen.get("hand", [])]
+                live_hand = [(c["id"], c.get("upgraded")) for c in live_screen.get("hand", [])]
+                if sim_hand != live_hand:
+                    diffs.append(f"  hand: sim={sim_hand} live={live_hand}")
+                # Pile sizes
+                for pile in ("draw_pile", "discard_pile", "exhaust_pile"):
+                    sc = len(sim_screen.get(pile, []))
+                    lc = len(live_screen.get(pile, []))
+                    if sc != lc:
+                        diffs.append(f"  {pile}: sim={sc} live={lc}")
+                    else:
+                        sim_ids = sorted(c["id"] for c in sim_screen.get(pile, []))
+                        live_ids = sorted(c["id"] for c in live_screen.get(pile, []))
+                        if sim_ids != live_ids:
+                            diffs.append(f"  {pile} contents differ: sim={sim_ids} live={live_ids}")
+            elif sim_stype == "card_reward":
+                sim_cards = [(c["id"], c.get("upgraded")) for c in sim_screen.get("cards", [])]
+                live_cards = [(c["id"], c.get("upgraded")) for c in live_screen.get("cards", [])]
+                if sim_cards != live_cards:
+                    diffs.append(f"  card_reward cards: sim={sim_cards} live={live_cards}")
+            elif sim_stype == "combat_rewards":
+                sim_rewards = [(r.get("type"), r.get("gold"), r.get("relic", {}).get("id"), r.get("potion", {}).get("id")) for r in sim_screen.get("rewards", [])]
+                live_rewards = [(r.get("type"), r.get("gold"), r.get("relic", {}).get("id"), r.get("potion", {}).get("id")) for r in live_screen.get("rewards", [])]
+                if sim_rewards != live_rewards:
+                    diffs.append(f"  rewards: sim={sim_rewards} live={live_rewards}")
+            elif sim_stype == "shop":
+                sim_cards = [(c["id"], c.get("price")) for c in sim_screen.get("cards", [])]
+                live_cards = [(c["id"], c.get("price")) for c in live_screen.get("cards", [])]
+                if sim_cards != live_cards:
+                    diffs.append(f"  shop cards: sim={sim_cards} live={live_cards}")
+                sim_relics = [(r["id"], r.get("price")) for r in sim_screen.get("relics", [])]
+                live_relics = [(r["id"], r.get("price")) for r in live_screen.get("relics", [])]
+                if sim_relics != live_relics:
+                    diffs.append(f"  shop relics: sim={sim_relics} live={live_relics}")
+                if sim_screen.get("purge_cost") != live_screen.get("purge_cost"):
+                    diffs.append(f"  purge_cost: sim={sim_screen.get('purge_cost')} live={live_screen.get('purge_cost')}")
+            elif sim_stype == "boss_relic":
+                sim_relics = [r["id"] for r in sim_screen.get("relics", [])]
+                live_relics = [r["id"] for r in live_screen.get("relics", [])]
+                if sim_relics != live_relics:
+                    diffs.append(f"  boss relics: sim={sim_relics} live={live_relics}")
+            elif sim_stype == "grid":
+                sim_cards = sorted((c["id"], c.get("upgraded")) for c in sim_screen.get("cards", []))
+                live_cards = sorted((c["id"], c.get("upgraded")) for c in live_screen.get("cards", []))
+                if sim_cards != live_cards:
+                    diffs.append(f"  grid cards: sim={sim_cards} live={live_cards}")
             if diffs:
                 self._log("[sim] MISMATCH:\n" + "\n".join(diffs))
             else:
@@ -681,17 +769,108 @@ class STSApp(App):
             deck = [c["id"] + ("+" if c.get("upgraded") else "") for c in s.get("deck", [])]
             relics = [r["id"] for r in s.get("relics", [])]
             potions = [p["id"] if p else "empty" for p in s.get("potions", [])]
-            screen_type = s.get("screen", {}).get("type", "?")
+            screen = s.get("screen", {})
+            screen_type = screen.get("type", "?")
             lines = [
-                f"[sim] HP:{s['hp']}/{s['max_hp']} Gold:{s['gold']} Floor:{s['floor']}",
+                f"[sim] HP:{s['hp']}/{s['max_hp']} Gold:{s['gold']} Floor:{s['floor']} Act:{s['act']}",
                 f"  Deck({len(deck)}): {', '.join(deck)}",
                 f"  Relics: {', '.join(relics)}",
                 f"  Potions: [{', '.join(potions)}]",
                 f"  Screen: {screen_type}",
             ]
+
+            if screen_type == "combat":
+                energy = screen.get("player_energy", "?")
+                block = screen.get("player_block", 0)
+                turn = screen.get("turn", "?")
+                lines.append(f"  Energy:{energy} Block:{block} Turn:{turn}")
+
+                powers = screen.get("player_powers", [])
+                if powers:
+                    pstr = ", ".join(f"{p['id']}({p['amount']})" for p in powers)
+                    lines.append(f"  Player powers: {pstr}")
+
+                for m in screen.get("monsters", []):
+                    gone = " [GONE]" if m.get("is_gone") else ""
+                    mpowers = ""
+                    if m.get("powers"):
+                        mpowers = " | " + ", ".join(f"{p['id']}({p['amount']})" for p in m["powers"])
+                    dmg = m.get("damage")
+                    hits = m.get("hits", 1)
+                    dmg_str = ""
+                    if dmg and dmg > 0:
+                        dmg_str = f" {dmg}x{hits}" if hits > 1 else f" {dmg}"
+                    lines.append(
+                        f"  Monster: {m['name']} {m['hp']}/{m['max_hp']} "
+                        f"blk:{m.get('block',0)} {m.get('intent','?')}{dmg_str}{mpowers}{gone}"
+                    )
+
+                hand = screen.get("hand", [])
+                hand_strs = []
+                for c in hand:
+                    up = "+" if c.get("upgraded") else ""
+                    playable = "" if c.get("is_playable") else " [X]"
+                    hand_strs.append(f"{c['name']}{up}({c['cost']}){playable}")
+                lines.append(f"  Hand({len(hand)}): {', '.join(hand_strs)}")
+
+                draw = screen.get("draw_pile", [])
+                discard = screen.get("discard_pile", [])
+                exhaust = screen.get("exhaust_pile", [])
+                lines.append(f"  Draw({len(draw)}) Discard({len(discard)}) Exhaust({len(exhaust)})")
+                if draw:
+                    draw_ids = [c["id"] + ("+" if c.get("upgraded") else "") for c in draw]
+                    lines.append(f"    Draw: {', '.join(draw_ids)}")
+                if discard:
+                    discard_ids = [c["id"] + ("+" if c.get("upgraded") else "") for c in discard]
+                    lines.append(f"    Discard: {', '.join(discard_ids)}")
+                if exhaust:
+                    exhaust_ids = [c["id"] + ("+" if c.get("upgraded") else "") for c in exhaust]
+                    lines.append(f"    Exhaust: {', '.join(exhaust_ids)}")
+
+            elif screen_type == "combat_rewards":
+                rewards = screen.get("rewards", [])
+                for r in rewards:
+                    rtype = r.get("type", "?")
+                    if rtype == "GOLD":
+                        lines.append(f"  Reward: {r.get('gold', 0)} gold")
+                    elif rtype in ("CARD", "UPGRADED_CARD", "RARE_CARD"):
+                        lines.append(f"  Reward: {rtype}")
+                    elif rtype == "RELIC":
+                        lines.append(f"  Reward: relic {r.get('relic', {}).get('id', '?')}")
+                    elif rtype == "POTION":
+                        lines.append(f"  Reward: potion {r.get('potion', {}).get('id', '?')}")
+                    else:
+                        lines.append(f"  Reward: {rtype}")
+
+            elif screen_type == "shop":
+                cards = screen.get("cards", [])
+                for c in cards:
+                    up = "+" if c.get("upgraded") else ""
+                    lines.append(f"  Card: {c['name']}{up} — {c.get('price', '?')}g")
+                for r in screen.get("relics", []):
+                    lines.append(f"  Relic: {r['name']} — {r.get('price', '?')}g")
+                for p in screen.get("potions", []):
+                    lines.append(f"  Potion: {p['name']} — {p.get('price', '?')}g")
+                if screen.get("purge_cost"):
+                    lines.append(f"  Purge: {screen['purge_cost']}g")
+
             self._log("\n".join(lines))
         except BaseException as e:
             self._log(f"[sim] Inspect error: {e}")
+
+    def action_sim_actions(self):
+        """Show the simulator's available actions."""
+        if self.sim is None:
+            self._log("[sim] Not synced — press 's' first")
+            return
+        try:
+            sim_actions = json.loads(self.sim.available_actions_json())
+            lines = [f"[sim] {len(sim_actions)} available actions:"]
+            for i, a in enumerate(sim_actions):
+                lines.append(f"  {i}: {self._format_action(a)}")
+            self._log("\n".join(lines))
+        except Exception as e:
+            self._log(f"[sim] Actions error: {e}")
 
     def _log(self, msg):
         log_widget = self.query_one("#log", RichLog)

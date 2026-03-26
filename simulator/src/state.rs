@@ -4,8 +4,8 @@ use crate::action::Action;
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
-use crate::screen::{EventOption, Screen, ShopCard, ShopPotion, ShopRelic};
-use crate::types::{Card, Potion, Relic};
+use crate::screen::{EventOption, HandCard, Screen, ShopCard, ShopPotion, ShopRelic};
+use crate::types::{Card, Monster, Potion, Relic};
 
 fn deserialize_screen_stack<'de, D>(deserializer: D) -> Result<Vec<Screen>, D::Error>
 where
@@ -721,9 +721,9 @@ impl GameState {
                 self.floor += 1;
                 let kind = *kind;
                 let screen = match kind {
-                    MapNodeKind::Monster => Screen::Combat { encounter: "UNKNOWN_MONSTER".to_string() },
-                    MapNodeKind::Elite => Screen::Combat { encounter: "UNKNOWN_ELITE".to_string() },
-                    MapNodeKind::Boss => Screen::Combat { encounter: "UNKNOWN_BOSS".to_string() },
+                    MapNodeKind::Monster => Screen::Combat { encounter: "UNKNOWN_MONSTER".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0 },
+                    MapNodeKind::Elite => Screen::Combat { encounter: "UNKNOWN_ELITE".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0 },
+                    MapNodeKind::Boss => Screen::Combat { encounter: "UNKNOWN_BOSS".to_string(), monsters: vec![], hand: vec![], draw_pile: vec![], discard_pile: vec![], exhaust_pile: vec![], player_block: 0, player_energy: 0, player_powers: vec![], turn: 0 },
                     MapNodeKind::Rest => Screen::Rest {
                         options: vec!["rest".to_string(), "smith".to_string()],
                     },
@@ -733,21 +733,17 @@ impl GameState {
                 };
                 self.set_screen(screen);
             }
+            Action::PlayCard { .. } => {
+                // No-op: in live mode, game executes card and new state arrives via from_json().
+                // Card effects, energy deduction, and turn lifecycle implemented in card_db branch.
+            }
+            Action::EndTurn => {
+                // No-op: in live mode, game executes turn and new state arrives via from_json().
+                // Turn lifecycle (discard, draw, energy) implemented in card_db branch.
+            }
             Action::Skip => {
-                if let Screen::Combat { encounter } = self.current_screen() {
-                    let encounter = encounter.clone();
-                    let rewards = self.generate_combat_rewards(&encounter);
-                    self.pop_screen(); // remove Combat
-                    if encounter == "UNKNOWN_BOSS" {
-                        // Boss: gold rewards, then boss relic screen with rare card
-                        let boss_relic_screen = self.generate_boss_relic_screen();
-                        self.push_screen(boss_relic_screen);
-                        if !rewards.is_empty() {
-                            self.push_screen(Screen::CombatRewards { rewards });
-                        }
-                    } else {
-                        self.push_screen(Screen::CombatRewards { rewards });
-                    }
+                if matches!(self.current_screen(), Screen::Combat { .. }) {
+                    self.finish_combat();
                 }
             }
             Action::DiscardPotion { slot } => {
@@ -779,6 +775,23 @@ impl GameState {
                 self.set_screen(Screen::Complete);
             } else {
                 self.set_screen(Screen::CombatRewards { rewards: new_rewards });
+            }
+        }
+    }
+
+    fn finish_combat(&mut self) {
+        if let Screen::Combat { encounter, .. } = self.current_screen() {
+            let encounter = encounter.clone();
+            let rewards = self.generate_combat_rewards(&encounter);
+            self.pop_screen();
+            if encounter.contains("BOSS") {
+                let boss_relic_screen = self.generate_boss_relic_screen();
+                self.push_screen(boss_relic_screen);
+                if !rewards.is_empty() {
+                    self.push_screen(Screen::CombatRewards { rewards });
+                }
+            } else {
+                self.push_screen(Screen::CombatRewards { rewards });
             }
         }
     }
@@ -910,7 +923,7 @@ impl GameState {
                 shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
             }
             Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
-            Screen::Combat { .. } => vec![Action::Skip],
+            Screen::Combat { hand, monsters, .. } => combat_actions(hand, monsters),
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
@@ -918,7 +931,7 @@ impl GameState {
         };
 
         // Potion discard available on most screens
-        if !matches!(self.current_screen(), Screen::GameOver { .. } | Screen::Combat { .. }) {
+        if !matches!(self.current_screen(), Screen::GameOver { .. }) {
             for (i, potion) in self.potions.iter().enumerate() {
                 if potion.is_some() {
                     actions.push(Action::DiscardPotion { slot: i as u8 });
@@ -1090,4 +1103,40 @@ fn grid_actions(cards: &[Card]) -> Vec<Action> {
             choice_index: i as u8,
         })
         .collect()
+}
+
+fn combat_actions(hand: &[HandCard], monsters: &[Monster]) -> Vec<Action> {
+    let mut actions = Vec::new();
+    let live_monsters: Vec<(u8, &Monster)> = monsters
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| !m.is_gone)
+        .map(|(i, m)| (i as u8, m))
+        .collect();
+
+    for (i, hc) in hand.iter().enumerate() {
+        if !hc.is_playable {
+            continue;
+        }
+        if hc.has_target {
+            for &(mi, ref m) in &live_monsters {
+                actions.push(Action::PlayCard {
+                    card: hc.card.clone(),
+                    hand_index: i as u8,
+                    target_index: Some(mi),
+                    target_name: Some(m.name.clone()),
+                });
+            }
+        } else {
+            actions.push(Action::PlayCard {
+                card: hc.card.clone(),
+                hand_index: i as u8,
+                target_index: None,
+                target_name: None,
+            });
+        }
+    }
+
+    actions.push(Action::EndTurn);
+    actions
 }
