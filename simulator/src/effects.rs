@@ -12,7 +12,20 @@ pub enum Effect {
     Draw(u8),
     GainEnergy(u8),
     LoseHP(u16),
+    AddCardToPile {
+        card_id: &'static str,
+        pile: Pile,
+        count: u8,
+    },
     Custom(&'static str),
+}
+
+/// Which pile to add a card to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pile {
+    Draw,
+    Discard,
+    Exhaust,
 }
 
 /// Who an effect targets.

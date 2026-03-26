@@ -1,4 +1,4 @@
-use sts_simulator::{Action, Card, GameState, HandCard, Monster, Power, Screen};
+use sts_simulator::{Action, Card, GameState, HandCard, Monster, Screen};
 
 fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
     Card {
@@ -417,5 +417,63 @@ fn uppercut_damages_and_debuffs() {
         assert_eq!(vuln.amount, 1);
     } else {
         panic!("Expected Combat screen");
+    }
+}
+
+// ── AddCardToPile ──
+
+#[test]
+fn wild_strike_adds_dazed_to_draw() {
+    let hand = vec![make_hand_card("BGWild Strike", 1, "ATTACK", true, true)];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGWild Strike", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, draw_pile, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 5); // 8 - 3
+        assert_eq!(draw_pile.len(), 1);
+        assert_eq!(draw_pile[0].id, "Dazed");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn power_through_blocks_and_adds_dazed() {
+    let hand = vec![make_hand_card("BGPower Through", 1, "SKILL", true, false)];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGPower Through", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, draw_pile, .. } = state.current_screen() {
+        assert_eq!(*player_block, 3);
+        assert_eq!(draw_pile.len(), 1);
+        assert_eq!(draw_pile[0].id, "Dazed");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn immolate_damages_all_and_adds_two_dazed() {
+    let hand = vec![make_hand_card("BGImmolate", 2, "ATTACK", true, false)];
+    let monsters = vec![
+        make_monster("BGGreenLouse", "Louse A", 5, 0),
+        make_monster("BGRedLouse", "Louse B", 5, 0),
+    ];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGImmolate", 2, "ATTACK", 0, None));
+
+    if let Screen::Combat { monsters, draw_pile, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 0); // 5 - 5, dead
+        assert_eq!(monsters[1].hp, 0); // 5 - 5, dead
+        assert_eq!(draw_pile.len(), 2);
+        assert!(draw_pile.iter().all(|c| c.id == "Dazed"));
+    } else {
+        // Both monsters dead — should transition to rewards
+        assert!(matches!(state.current_screen(), Screen::CombatRewards { .. }));
     }
 }
