@@ -17,6 +17,8 @@ pub enum Effect {
         pile: Pile,
         count: u8,
     },
+    /// Player chooses card(s) from hand to exhaust. Pushes a sub-decision screen.
+    ExhaustFromHand(u8),
     Custom(&'static str),
 }
 

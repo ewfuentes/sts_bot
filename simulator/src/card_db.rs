@@ -211,6 +211,18 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             upgraded_cost: None, upgraded_effects: Some(&[Block(3), Draw(1)]),
             upgraded_exhaust: None, upgraded_ethereal: None,
         },
+        CardInfo {
+            id: "BGTrue Grit", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
+            effects: &[Block(1), ExhaustFromHand(1)], exhaust: false, ethereal: false,
+            upgraded_cost: None, upgraded_effects: Some(&[Block(2), ExhaustFromHand(1)]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
+        CardInfo {
+            id: "BGBurning Pact", cost: 1, card_type: CardType::Skill, target: CardTarget::None,
+            effects: &[ExhaustFromHand(1), Draw(2)], exhaust: false, ethereal: false,
+            upgraded_cost: None, upgraded_effects: Some(&[ExhaustFromHand(1), Draw(3)]),
+            upgraded_exhaust: None, upgraded_ethereal: None,
+        },
         // BGSentinel excluded: has triggerOnExhaust (gain energy) not yet modeled
         CardInfo {
             id: "BGGhostly Armor", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,

@@ -766,6 +766,8 @@ impl GameState {
                 };
 
                 // Access screen fields directly to allow borrowing self.hp separately
+                let mut sub_decision: Option<Screen> = None;
+
                 if let Some(Screen::Combat {
                     hand, draw_pile, discard_pile, exhaust_pile,
                     player_energy, player_block, player_powers, monsters, ..
@@ -779,45 +781,69 @@ impl GameState {
                         *player_energy = player_energy.saturating_sub(cost as u8);
                     }
 
-                    // Execute effects
-                    for effect in &effects {
-                        execute_effect(
-                            effect,
-                            target_idx,
-                            &mut self.hp,
-                            player_block,
-                            player_energy,
-                            player_powers,
-                            monsters,
-                            draw_pile,
-                            discard_pile,
-                            exhaust_pile,
-                            hand,
-                        );
-                    }
-
-                    // Move card to appropriate pile
+                    // Move played card to appropriate pile
                     if is_power {
                         // Powers are consumed
                     } else if does_exhaust {
-                        exhaust_pile.push(card);
+                        exhaust_pile.push(card.clone());
                     } else {
-                        discard_pile.push(card);
+                        discard_pile.push(card.clone());
                     }
 
-                    // Recalculate is_playable for remaining hand cards
-                    let energy = *player_energy;
-                    for hc in hand.iter_mut() {
-                        let card_cost = card_db::lookup(&hc.card.id)
-                            .map(|i| i.effective_cost(hc.card.upgraded))
-                            .unwrap_or(hc.card.cost);
-                        hc.is_playable = card_cost >= 0 && card_cost <= energy as i8;
+                    // Execute effects sequentially; pause if a sub-decision is needed
+                    let mut effect_iter = effects.into_iter();
+                    while let Some(effect) = effect_iter.next() {
+                        if let Effect::ExhaustFromHand(count) = &effect {
+                            let count = *count as usize;
+                            let on_complete: Vec<Effect> = effect_iter.collect();
+
+                            if hand.len() <= count {
+                                // Auto-resolve: exhaust all hand cards, continue effects
+                                let to_exhaust: Vec<HandCard> = hand.drain(..).collect();
+                                for hc in to_exhaust {
+                                    exhaust_pile.push(hc.card);
+                                }
+                                // Continue executing on_complete effects
+                                for effect in &on_complete {
+                                    execute_effect(
+                                        effect, target_idx, &mut self.hp,
+                                        player_block, player_energy, player_powers,
+                                        monsters, draw_pile, discard_pile, exhaust_pile, hand,
+                                    );
+                                }
+                            } else {
+                                // Real choice — push HandSelect
+                                let cards: Vec<Card> = hand.iter().map(|hc| hc.card.clone()).collect();
+                                sub_decision = Some(Screen::HandSelect {
+                                    min_cards: count as u8,
+                                    max_cards: count as u8,
+                                    cards,
+                                    purpose: "exhaust".to_string(),
+                                    cards_picked: 0,
+                                    on_complete,
+                                });
+                            }
+                            break;
+                        }
+                        execute_effect(
+                            &effect, target_idx, &mut self.hp,
+                            player_block, player_energy, player_powers,
+                            monsters, draw_pile, discard_pile, exhaust_pile, hand,
+                        );
                     }
 
-                    // Check if all monsters are dead
-                    if monsters.iter().all(|m| m.is_gone) {
-                        self.finish_combat();
+                    if sub_decision.is_none() {
+                        // No sub-decision — finalize
+                        recalculate_playability(hand, *player_energy);
+
+                        if monsters.iter().all(|m| m.is_gone) {
+                            self.finish_combat();
+                        }
                     }
+                }
+
+                if let Some(screen) = sub_decision {
+                    self.push_screen(screen);
                 }
             }
             Action::EndTurn => {
@@ -882,9 +908,47 @@ impl GameState {
                     *turn += 1;
                 }
             }
+            Action::PickHandCard { choice_index, .. } => {
+                if let Screen::HandSelect {
+                    purpose, cards, cards_picked, max_cards, ..
+                } = self.current_screen_mut()
+                {
+                    let idx = *choice_index as usize;
+                    let purpose = purpose.clone();
+                    let max = *max_cards;
+
+                    // Remove card from the selection list
+                    if idx < cards.len() {
+                        cards.remove(idx);
+                    }
+                    *cards_picked += 1;
+                    let picked = *cards_picked;
+
+                    // Exhaust the card from combat hand
+                    if purpose == "exhaust" {
+                        self.exhaust_from_combat_hand(idx);
+                    }
+
+                    // If we've hit max picks, auto-resolve
+                    if picked >= max {
+                        let on_complete = if let Screen::HandSelect { on_complete, .. } = self.current_screen() {
+                            on_complete.clone()
+                        } else {
+                            vec![]
+                        };
+                        self.pop_screen();
+                        self.run_remaining_effects(&on_complete);
+                    }
+                }
+            }
             Action::Skip => {
                 if matches!(self.current_screen(), Screen::Combat { .. }) {
                     self.finish_combat();
+                }
+                if let Screen::HandSelect { on_complete, .. } = self.current_screen() {
+                    let on_complete = on_complete.clone();
+                    self.pop_screen();
+                    self.run_remaining_effects(&on_complete);
                 }
             }
             Action::DiscardPotion { slot } => {
@@ -933,6 +997,40 @@ impl GameState {
                 }
             } else {
                 self.push_screen(Screen::CombatRewards { rewards });
+            }
+        }
+    }
+
+    /// Exhaust a card from the combat hand by index.
+    fn exhaust_from_combat_hand(&mut self, idx: usize) {
+        if let Some(Screen::Combat { hand, exhaust_pile, .. }) = self.screen.iter_mut().rev()
+            .find(|s| matches!(s, Screen::Combat { .. }))
+        {
+            if idx < hand.len() {
+                let hc = hand.remove(idx);
+                exhaust_pile.push(hc.card);
+            }
+        }
+    }
+
+    /// Run remaining effects on the combat screen underneath.
+    fn run_remaining_effects(&mut self, effects: &[Effect]) {
+        if let Some(Screen::Combat {
+            hand, draw_pile, discard_pile, exhaust_pile,
+            player_block, player_energy, player_powers, monsters, ..
+        }) = self.screen.last_mut()
+        {
+            for effect in effects {
+                execute_effect(
+                    effect, None, &mut self.hp,
+                    player_block, player_energy, player_powers,
+                    monsters, draw_pile, discard_pile, exhaust_pile, hand,
+                );
+            }
+            recalculate_playability(hand, *player_energy);
+
+            if monsters.iter().all(|m| m.is_gone) {
+                self.finish_combat();
             }
         }
     }
@@ -1065,6 +1163,9 @@ impl GameState {
             }
             Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
             Screen::Combat { hand, monsters, .. } => combat_actions(hand, monsters),
+            Screen::HandSelect { cards, cards_picked, min_cards, max_cards, .. } => {
+                hand_select_actions(cards, *cards_picked, *min_cards, *max_cards)
+            }
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
@@ -1391,6 +1492,9 @@ fn execute_effect(
                 target_pile.push(new_card.clone());
             }
         }
+        Effect::ExhaustFromHand(_) => {
+            // Handled in PlayCard apply loop, not in execute_effect
+        }
         Effect::Custom(_id) => {
             // Not yet implemented — custom effects are no-ops for now
         }
@@ -1421,4 +1525,34 @@ fn apply_power(powers: &mut Vec<crate::types::Power>, power_id: &str, amount: i3
             amount,
         });
     }
+}
+
+fn recalculate_playability(hand: &mut [HandCard], energy: u8) {
+    for hc in hand.iter_mut() {
+        let card_cost = card_db::lookup(&hc.card.id)
+            .map(|i| i.effective_cost(hc.card.upgraded))
+            .unwrap_or(hc.card.cost);
+        hc.is_playable = card_cost >= 0 && card_cost <= energy as i8;
+    }
+}
+
+fn hand_select_actions(cards: &[Card], cards_picked: u8, min_cards: u8, max_cards: u8) -> Vec<Action> {
+    let mut actions = Vec::new();
+
+    // Offer pick for each remaining card (if under max)
+    if cards_picked < max_cards {
+        for (i, card) in cards.iter().enumerate() {
+            actions.push(Action::PickHandCard {
+                card: card.clone(),
+                choice_index: i as u8,
+            });
+        }
+    }
+
+    // Can skip/confirm if minimum is met
+    if cards_picked >= min_cards {
+        actions.push(Action::Skip);
+    }
+
+    actions
 }

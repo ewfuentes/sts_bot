@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::effects::Effect;
 use crate::map::MapNodeKind;
 use crate::types::{Card, Monster, Power};
 
@@ -67,8 +68,16 @@ pub enum Screen {
         cards: Vec<Card>,
     },
     HandSelect {
+        min_cards: u8,
         max_cards: u8,
         cards: Vec<Card>,
+        #[serde(default)]
+        purpose: String,
+        #[serde(default)]
+        cards_picked: u8,
+        /// Effects to resume after this sub-decision resolves.
+        #[serde(skip)]
+        on_complete: Vec<Effect>,
     },
     CustomScreen {
         screen_enum: String,
