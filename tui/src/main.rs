@@ -8,7 +8,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
-use sts_simulator::{Action, GameState, MapChoice, MapNodeKind, Screen};
+use sts_simulator::{Action, Card, GameState, HandCard, MapChoice, MapNodeKind, Monster, Screen};
 
 struct App {
     state: GameState,
@@ -36,6 +36,13 @@ impl App {
         let action = self.actions[self.selected].clone();
         self.log.push(format!("> {}", format_action(&action, &self.state)));
         self.state.apply(&action);
+
+        // If we entered combat, set up the encounter
+        if let Screen::Combat { monsters, hand, turn, .. } = self.state.current_screen() {
+            if monsters.is_empty() && hand.is_empty() && *turn == 0 {
+                setup_combat(&mut self.state);
+            }
+        }
 
         // If we've popped back to an empty stack, show the map again
         if matches!(self.state.current_screen(), Screen::Complete) && self.state.screen.len() == 1 {
@@ -175,7 +182,7 @@ fn build_status(state: &GameState) -> Vec<Line<'static>> {
     let screen_name = match state.current_screen() {
         Screen::Neow { .. } => "Neow's Blessing".into(),
         Screen::Map { .. } => "Map".into(),
-        Screen::Combat { encounter } => format!("Combat ({})", encounter),
+        Screen::Combat { encounter, .. } => format!("Combat ({})", encounter),
         Screen::Event { event_name, .. } => format!("Event: {}", event_name),
         Screen::Rest { .. } => "Rest Site".into(),
         Screen::Shop { .. } => "Shop".into(),
@@ -206,7 +213,7 @@ fn build_status(state: &GameState) -> Vec<Line<'static>> {
 
     let stack_depth = state.screen.len();
 
-    vec![
+    let mut lines = vec![
         Line::from(vec![
             Span::raw("HP: "),
             Span::styled(
@@ -222,10 +229,56 @@ fn build_status(state: &GameState) -> Vec<Line<'static>> {
             Span::raw(format!("  (stack: {})", stack_depth)),
         ]),
         Line::from(""),
-        Line::from(format!("Deck ({}): {}", deck.len(), deck.join(", "))),
-        Line::from(format!("Relics: {}", relics.join(", "))),
-        Line::from(format!("Potions: [{}]", potions.join(", "))),
-    ]
+    ];
+
+    // Combat-specific display
+    if let Screen::Combat {
+        monsters, hand, draw_pile, discard_pile, exhaust_pile,
+        player_block, player_energy, player_powers, turn, ..
+    } = state.current_screen()
+    {
+        lines.push(Line::from(format!(
+            "Energy: {}  Block: {}  Turn: {}", player_energy, player_block, turn
+        )));
+        if !player_powers.is_empty() {
+            let pp: Vec<String> = player_powers.iter().map(|p| format!("{}({})", p.id, p.amount)).collect();
+            lines.push(Line::from(format!("Powers: {}", pp.join(", "))));
+        }
+        lines.push(Line::from(""));
+        for m in monsters {
+            if m.is_gone { continue; }
+            let mp = if m.powers.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", m.powers.iter().map(|p| format!("{}({})", p.id, p.amount)).collect::<Vec<_>>().join(", "))
+            };
+            let dmg = match (m.damage, m.hits) {
+                (Some(d), h) if h > 1 => format!(" {}x{}", d, h),
+                (Some(d), _) => format!(" {}", d),
+                _ => String::new(),
+            };
+            lines.push(Line::from(format!(
+                "  {} {}/{} blk:{} {}{}{}", m.name, m.hp, m.max_hp, m.block, m.intent, dmg, mp
+            )));
+        }
+        lines.push(Line::from(""));
+        let hand_strs: Vec<String> = hand.iter().map(|hc| {
+            let up = if hc.card.upgraded { "+" } else { "" };
+            let unplayable = if !hc.is_playable { " [X]" } else { "" };
+            format!("{}{}({}){}", hc.card.name, up, hc.card.cost, unplayable)
+        }).collect();
+        lines.push(Line::from(format!("Hand: {}", hand_strs.join(", "))));
+        lines.push(Line::from(format!(
+            "Draw: {}  Discard: {}  Exhaust: {}", draw_pile.len(), discard_pile.len(), exhaust_pile.len()
+        )));
+    } else {
+        lines.push(Line::from(format!("Deck ({}): {}", deck.len(), deck.join(", "))));
+    }
+
+    lines.push(Line::from(format!("Relics: {}", relics.join(", "))));
+    lines.push(Line::from(format!("Potions: [{}]", potions.join(", "))));
+
+    lines
 }
 
 fn format_action(action: &Action, state: &GameState) -> String {
@@ -274,6 +327,14 @@ fn format_action(action: &Action, state: &GameState) -> String {
         Action::PickGridCard { card, .. } => format!("Select {}{}", card.name, if card.upgraded { "+" } else { "" }),
         Action::PickHandCard { card, .. } => format!("Pick {}", card.name),
         Action::PickCustomScreenOption { label, .. } => label.clone(),
+        Action::PlayCard { card, target_name, .. } => {
+            let up = if card.upgraded { "+" } else { "" };
+            match target_name {
+                Some(name) => format!("Play {}{} (cost {}) → {}", card.name, up, card.cost, name),
+                None => format!("Play {}{} (cost {})", card.name, up, card.cost),
+            }
+        }
+        Action::EndTurn => "End Turn".into(),
         Action::DiscardPotion { slot } => {
             let idx = *slot as usize;
             if idx < state.potions.len() {
@@ -285,5 +346,59 @@ fn format_action(action: &Action, state: &GameState) -> String {
         }
         Action::Proceed => "Proceed".into(),
         Action::Skip => "Skip".into(),
+    }
+}
+
+/// Set up a combat encounter: populate monsters, shuffle deck into draw pile, draw 5, set energy.
+fn setup_combat(state: &mut GameState) {
+    // Create a Jaw Worm encounter
+    let monsters = vec![
+        Monster {
+            id: "BGJawWorm".into(),
+            name: "Jaw Worm".into(),
+            hp: 8,
+            max_hp: 8,
+            block: 0,
+            intent: "ATTACK".into(),
+            damage: Some(3),
+            hits: 1,
+            powers: vec![],
+            is_gone: false,
+        },
+    ];
+
+    // Shuffle deck into draw pile
+    let mut draw_pile: Vec<Card> = state.deck.clone();
+    // Simple deterministic shuffle: reverse (good enough for demo)
+    draw_pile.reverse();
+
+    // Draw 5 cards
+    let mut hand = Vec::new();
+    for _ in 0..5 {
+        if let Some(card) = draw_pile.pop() {
+            let info = sts_simulator::card_db::lookup(&card.id);
+            let is_playable = info
+                .map(|i| {
+                    let c = i.effective_cost(card.upgraded);
+                    c >= 0 && c <= 3
+                })
+                .unwrap_or(card.cost >= 0 && card.cost <= 3);
+            let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
+            hand.push(HandCard { card, is_playable, has_target });
+        }
+    }
+
+    if let Some(Screen::Combat {
+        monsters: m, hand: h, draw_pile: dp,
+        player_energy, player_block, turn, ..
+    }) = state.screen.last_mut()
+    {
+        *m = monsters;
+        *h = hand;
+        *dp = draw_pile;
+        *player_energy = 3;
+        *player_block = 0;
+        *turn = 1;
+        // Keep encounter string (e.g. "UNKNOWN_MONSTER") — it drives reward generation
     }
 }
