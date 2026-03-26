@@ -1,6 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
+use crate::card_db;
+use crate::effects::{Effect, EffectTarget};
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
@@ -733,13 +735,151 @@ impl GameState {
                 };
                 self.set_screen(screen);
             }
-            Action::PlayCard { .. } => {
-                // No-op: in live mode, game executes card and new state arrives via from_json().
-                // Card effects, energy deduction, and turn lifecycle implemented in card_db branch.
+            Action::PlayCard { hand_index, target_index, .. } => {
+                let target_idx = *target_index;
+                let hand_idx = *hand_index as usize;
+
+                // Extract card info before mutable borrow
+                let (card, effects, is_power, does_exhaust, cost) = {
+                    if let Screen::Combat { hand, .. } = self.current_screen() {
+                        if hand_idx >= hand.len() {
+                            return;
+                        }
+                        let card = hand[hand_idx].card.clone();
+                        let info = card_db::lookup(&card.id);
+                        let effects: Vec<Effect> = info
+                            .map(|i| i.effective_effects(card.upgraded).to_vec())
+                            .unwrap_or_default();
+                        let is_power = info
+                            .map(|i| i.card_type == card_db::CardType::Power)
+                            .unwrap_or(card.card_type == "POWER");
+                        let does_exhaust = info
+                            .map(|i| i.does_exhaust(card.upgraded))
+                            .unwrap_or(false);
+                        let cost = info
+                            .map(|i| i.effective_cost(card.upgraded))
+                            .unwrap_or(card.cost);
+                        (card, effects, is_power, does_exhaust, cost)
+                    } else {
+                        return;
+                    }
+                };
+
+                // Access screen fields directly to allow borrowing self.hp separately
+                if let Some(Screen::Combat {
+                    hand, draw_pile, discard_pile, exhaust_pile,
+                    player_energy, player_block, player_powers, monsters, ..
+                }) = self.screen.last_mut()
+                {
+                    // Remove card from hand
+                    hand.remove(hand_idx);
+
+                    // Deduct energy
+                    if cost >= 0 {
+                        *player_energy = player_energy.saturating_sub(cost as u8);
+                    }
+
+                    // Execute effects
+                    for effect in &effects {
+                        execute_effect(
+                            effect,
+                            target_idx,
+                            &mut self.hp,
+                            player_block,
+                            player_energy,
+                            player_powers,
+                            monsters,
+                            draw_pile,
+                            discard_pile,
+                            hand,
+                        );
+                    }
+
+                    // Move card to appropriate pile
+                    if is_power {
+                        // Powers are consumed
+                    } else if does_exhaust {
+                        exhaust_pile.push(card);
+                    } else {
+                        discard_pile.push(card);
+                    }
+
+                    // Recalculate is_playable for remaining hand cards
+                    let energy = *player_energy;
+                    for hc in hand.iter_mut() {
+                        let card_cost = card_db::lookup(&hc.card.id)
+                            .map(|i| i.effective_cost(hc.card.upgraded))
+                            .unwrap_or(hc.card.cost);
+                        hc.is_playable = card_cost >= 0 && card_cost <= energy as i8;
+                    }
+
+                    // Check if all monsters are dead
+                    if monsters.iter().all(|m| m.is_gone) {
+                        self.finish_combat();
+                    }
+                }
             }
             Action::EndTurn => {
-                // No-op: in live mode, game executes turn and new state arrives via from_json().
-                // Turn lifecycle (discard, draw, energy) implemented in card_db branch.
+                if let Screen::Combat {
+                    hand, draw_pile, discard_pile, exhaust_pile,
+                    player_block, player_energy, turn, ..
+                } = self.current_screen_mut()
+                {
+                    // 1. Discard hand (ethereal → exhaust)
+                    let hand_cards: Vec<HandCard> = hand.drain(..).collect();
+                    for hc in hand_cards {
+                        let is_ethereal = card_db::lookup(&hc.card.id)
+                            .map(|i| i.is_ethereal(hc.card.upgraded))
+                            .unwrap_or(false);
+                        if is_ethereal {
+                            exhaust_pile.push(hc.card);
+                        } else {
+                            discard_pile.push(hc.card);
+                        }
+                    }
+
+                    // 2. [STUB] Monster turns would go here
+
+                    // 3. Player block → 0
+                    *player_block = 0;
+
+                    // 4. [STUB] Turn-start power triggers would go here
+
+                    // 5-6. Draw 5 cards (reshuffle if needed)
+                    let draw_count = 5usize;
+                    for _ in 0..draw_count {
+                        if draw_pile.is_empty() && !discard_pile.is_empty() {
+                            // Reshuffle: move all discard → draw, shuffle
+                            draw_pile.append(discard_pile);
+                            // Deterministic shuffle would use a seed; for now just reverse
+                            // (tests can set draw pile order explicitly)
+                            draw_pile.reverse();
+                        }
+                        if let Some(card) = draw_pile.pop() {
+                            let info = card_db::lookup(&card.id);
+                            let is_playable = info
+                                .map(|i| {
+                                    let c = i.effective_cost(card.upgraded);
+                                    c >= 0 && c <= 3 // energy will be 3 after refill
+                                })
+                                .unwrap_or(true);
+                            let has_target = info
+                                .map(|i| i.target.has_target())
+                                .unwrap_or(false);
+                            hand.push(HandCard {
+                                card,
+                                is_playable,
+                                has_target,
+                            });
+                        }
+                    }
+
+                    // 7. Energy → 3
+                    *player_energy = 3;
+
+                    // 8. Turn += 1
+                    *turn += 1;
+                }
             }
             Action::Skip => {
                 if matches!(self.current_screen(), Screen::Combat { .. }) {
@@ -1139,4 +1279,118 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster]) -> Vec<Action> {
 
     actions.push(Action::EndTurn);
     actions
+}
+
+/// Apply a single card effect to the combat state.
+/// Power modifiers (Strength, Weak, Vulnerable) are not yet applied.
+#[allow(clippy::too_many_arguments)]
+fn execute_effect(
+    effect: &Effect,
+    target_index: Option<u8>,
+    player_hp: &mut u16,
+    player_block: &mut u16,
+    player_energy: &mut u8,
+    player_powers: &mut Vec<crate::types::Power>,
+    monsters: &mut Vec<crate::types::Monster>,
+    draw_pile: &mut Vec<Card>,
+    discard_pile: &mut Vec<Card>,
+    hand: &mut Vec<HandCard>,
+) {
+    match effect {
+        Effect::Damage(amount) => {
+            if let Some(idx) = target_index {
+                let idx = idx as usize;
+                if idx < monsters.len() && !monsters[idx].is_gone {
+                    apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                }
+            }
+        }
+        Effect::DamageAll(amount) => {
+            for monster in monsters.iter_mut() {
+                if !monster.is_gone {
+                    apply_damage_to_monster(monster, *amount as u16);
+                }
+            }
+        }
+        Effect::Block(amount) => {
+            *player_block += *amount as u16;
+        }
+        Effect::ApplyPower { target, power_id, amount } => {
+            match target {
+                EffectTarget::TargetEnemy => {
+                    if let Some(idx) = target_index {
+                        let idx = idx as usize;
+                        if idx < monsters.len() && !monsters[idx].is_gone {
+                            apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
+                        }
+                    }
+                }
+                EffectTarget::_Self => {
+                    apply_power(player_powers, power_id, *amount as i32);
+                }
+                EffectTarget::AllEnemies => {
+                    for monster in monsters.iter_mut() {
+                        if !monster.is_gone {
+                            apply_power(&mut monster.powers, power_id, *amount as i32);
+                        }
+                    }
+                }
+            }
+        }
+        Effect::Draw(count) => {
+            for _ in 0..*count {
+                if draw_pile.is_empty() && !discard_pile.is_empty() {
+                    draw_pile.append(discard_pile);
+                    draw_pile.reverse();
+                }
+                if let Some(card) = draw_pile.pop() {
+                    let info = card_db::lookup(&card.id);
+                    let energy = *player_energy;
+                    let is_playable = info
+                        .map(|i| {
+                            let c = i.effective_cost(card.upgraded);
+                            c >= 0 && c <= energy as i8
+                        })
+                        .unwrap_or(true);
+                    let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
+                    hand.push(HandCard { card, is_playable, has_target });
+                }
+            }
+        }
+        Effect::GainEnergy(amount) => {
+            *player_energy += amount;
+        }
+        Effect::LoseHP(amount) => {
+            *player_hp = player_hp.saturating_sub(*amount);
+        }
+        Effect::Custom(_id) => {
+            // Not yet implemented — custom effects are no-ops for now
+        }
+    }
+}
+
+/// Deal damage to a monster, accounting for its block.
+fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) {
+    if damage <= monster.block {
+        monster.block -= damage;
+    } else {
+        let remaining = damage - monster.block;
+        monster.block = 0;
+        monster.hp = monster.hp.saturating_sub(remaining);
+    }
+    if monster.hp == 0 {
+        monster.is_gone = true;
+    }
+}
+
+/// Add or stack a power on a creature's power list.
+fn apply_power(powers: &mut Vec<crate::types::Power>, power_id: &str, amount: i32) {
+    if let Some(existing) = powers.iter_mut().find(|p| p.id == power_id) {
+        existing.amount += amount;
+    } else {
+        powers.push(crate::types::Power {
+            id: power_id.to_string(),
+            amount,
+        });
+    }
 }
