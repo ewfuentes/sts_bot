@@ -28,6 +28,22 @@ pub enum CardType {
     Curse,
 }
 
+/// Condition that must be met for a card to be playable (beyond energy).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayCondition {
+    /// All cards in hand must be attacks (Clash).
+    HandAllAttacks,
+    /// No other attack cards in hand (Signature Move).
+    #[allow(dead_code)]
+    HandNoOtherAttacks,
+    /// Draw pile must be empty (Grand Finale).
+    #[allow(dead_code)]
+    DrawPileEmpty,
+    /// Card can never be played; only triggers on discard (Tactician, Reflex).
+    #[allow(dead_code)]
+    Never,
+}
+
 /// Static metadata for a card, looked up by ID.
 #[derive(Debug, Clone)]
 pub struct CardInfo {
@@ -38,6 +54,7 @@ pub struct CardInfo {
     pub effects: &'static [Effect],
     pub exhaust: bool,
     pub ethereal: bool,
+    pub play_condition: Option<PlayCondition>,
     // Upgrade overrides (None = same as base)
     pub upgraded_cost: Option<i8>,
     pub upgraded_effects: Option<&'static [Effect]>,
@@ -62,6 +79,7 @@ impl CardInfo {
             effects,
             exhaust: false,
             ethereal: false,
+            play_condition: None,
             upgraded_cost: None,
             upgraded_effects: None,
             upgraded_exhaust: None,
@@ -76,6 +94,11 @@ impl CardInfo {
 
     const fn ethereal(mut self) -> Self {
         self.ethereal = true;
+        self
+    }
+
+    const fn play_condition(mut self, cond: PlayCondition) -> Self {
+        self.play_condition = Some(cond);
         self
     }
 
@@ -203,6 +226,9 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
                 SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust },
                 DamageBasedOn(DamageSource::ExhaustPileSize),
             ]),
+        CardInfo::new("BGClash", 0, CardType::Attack, CardTarget::Enemy, &[Damage(3)])
+            .play_condition(PlayCondition::HandAllAttacks)
+            .upgraded_effects(&[Damage(4)]),
         // ── Verified skills ──
         CardInfo::new("BGPower Through", 1, CardType::Skill, CardTarget::_Self,
             &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])

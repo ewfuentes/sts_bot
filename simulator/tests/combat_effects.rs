@@ -476,6 +476,76 @@ fn immolate_damages_all_and_adds_two_dazed() {
     }
 }
 
+// ── PlayCondition ──
+
+#[test]
+fn clash_not_in_actions_with_non_attack_in_hand() {
+    let hand = vec![
+        make_hand_card("BGClash", 0, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    let actions = state.available_actions();
+    let has_clash = actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGClash"));
+    assert!(!has_clash, "Clash should not be playable with a non-attack in hand");
+}
+
+#[test]
+fn clash_in_actions_when_hand_all_attacks() {
+    let hand = vec![
+        make_hand_card("BGClash", 0, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    let actions = state.available_actions();
+    let has_clash = actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGClash"));
+    assert!(has_clash, "Clash should be playable with only attacks in hand");
+}
+
+#[test]
+fn clash_becomes_playable_after_playing_non_attack() {
+    let hand = vec![
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGClash", 0, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    // With Defend in hand, Clash should not be playable
+    let actions = state.available_actions();
+    assert!(!actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGClash")));
+
+    // Play Defend — now only attacks remain
+    state.apply(&play_action("BGDefend_R", 1, "SKILL", 2, None));
+
+    let actions = state.available_actions();
+    assert!(actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGClash")),
+        "Clash should be playable after removing non-attack from hand");
+}
+
+#[test]
+fn clash_deals_damage() {
+    let hand = vec![
+        make_hand_card("BGClash", 0, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGClash", 0, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_energy, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 5); // 8 - 3
+        assert_eq!(*player_energy, 3); // cost 0
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── DamageBasedOn ──
 
 #[test]
