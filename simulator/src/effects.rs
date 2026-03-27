@@ -34,6 +34,13 @@ pub enum Effect {
     DoubleBlock,
     /// Double the player's current strength.
     DoubleStrength,
+    /// For each card in hand matching the filter, push per_card effects into the queue.
+    /// If exhaust_matched is true, exhaust the matched cards.
+    ForEachInHand {
+        filter: HandFilter,
+        per_card: &'static [Effect],
+        exhaust_matched: bool,
+    },
     /// Present the player with a choice between N named effect lists.
     /// Each entry is (label, effects). The player picks one and those effects are queued.
     ChooseOne(&'static [(&'static str, &'static [Effect])]),
@@ -56,6 +63,17 @@ pub enum Pile {
     Draw,
     Discard,
     Exhaust,
+}
+
+/// Which cards in hand to match.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HandFilter {
+    /// All cards in hand.
+    AllCards,
+    /// Only attack cards.
+    Attacks,
+    /// Only non-attack cards.
+    NonAttacks,
 }
 
 /// Who an effect targets.
