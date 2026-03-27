@@ -46,6 +46,61 @@ pub struct CardInfo {
 }
 
 impl CardInfo {
+    /// Create a new card with required fields; optional fields default to None/false.
+    const fn new(
+        id: &'static str,
+        cost: i8,
+        card_type: CardType,
+        target: CardTarget,
+        effects: &'static [Effect],
+    ) -> Self {
+        Self {
+            id,
+            cost,
+            card_type,
+            target,
+            effects,
+            exhaust: false,
+            ethereal: false,
+            upgraded_cost: None,
+            upgraded_effects: None,
+            upgraded_exhaust: None,
+            upgraded_ethereal: None,
+        }
+    }
+
+    const fn exhaust(mut self) -> Self {
+        self.exhaust = true;
+        self
+    }
+
+    const fn ethereal(mut self) -> Self {
+        self.ethereal = true;
+        self
+    }
+
+    const fn upgraded_cost(mut self, cost: i8) -> Self {
+        self.upgraded_cost = Some(cost);
+        self
+    }
+
+    const fn upgraded_effects(mut self, effects: &'static [Effect]) -> Self {
+        self.upgraded_effects = Some(effects);
+        self
+    }
+
+    #[allow(dead_code)]
+    const fn upgraded_exhaust(mut self, val: bool) -> Self {
+        self.upgraded_exhaust = Some(val);
+        self
+    }
+
+    #[allow(dead_code)]
+    const fn upgraded_ethereal(mut self, val: bool) -> Self {
+        self.upgraded_ethereal = Some(val);
+        self
+    }
+
     /// Get the effective cost for a card (base or upgraded).
     pub fn effective_cost(&self, upgraded: bool) -> i8 {
         if upgraded {
@@ -99,312 +154,143 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
     // until those mechanics are implemented.
     let cards: Vec<CardInfo> = vec![
         // ── Starters ──
-        CardInfo {
-            id: "BGStrike_R", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(1)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Damage(2)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGDefend_R", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[Block(1)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Block(2)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGBash", cost: 2, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(2), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
+        CardInfo::new("BGStrike_R", 1, CardType::Attack, CardTarget::Enemy, &[Damage(1)])
+            .upgraded_effects(&[Damage(2)]),
+        CardInfo::new("BGDefend_R", 1, CardType::Skill, CardTarget::_Self, &[Block(1)])
+            .upgraded_effects(&[Block(2)]),
+        CardInfo::new("BGBash", 2, CardType::Attack, CardTarget::Enemy,
+            &[Damage(2), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 }])
+            .upgraded_effects(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 2 }]),
         // ── Verified attacks ──
-        CardInfo {
-            id: "BGCleave", cost: 1, card_type: CardType::Attack, target: CardTarget::AllEnemy,
-            effects: &[DamageAll(2)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[DamageAll(3)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGClothesline", cost: 2, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(3), ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGTwin Strike", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(1), Damage(1)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Damage(2), Damage(2)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGPommel Strike", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(2), Draw(1)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Damage(3), Draw(2)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGBludgeon", cost: 3, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(7)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Damage(10)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGUppercut", cost: 2, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[
+        CardInfo::new("BGCleave", 1, CardType::Attack, CardTarget::AllEnemy, &[DamageAll(2)])
+            .upgraded_effects(&[DamageAll(3)]),
+        CardInfo::new("BGClothesline", 2, CardType::Attack, CardTarget::Enemy,
+            &[Damage(3), ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 1 }])
+            .upgraded_effects(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 }]),
+        CardInfo::new("BGTwin Strike", 1, CardType::Attack, CardTarget::Enemy, &[Damage(1), Damage(1)])
+            .upgraded_effects(&[Damage(2), Damage(2)]),
+        CardInfo::new("BGPommel Strike", 1, CardType::Attack, CardTarget::Enemy, &[Damage(2), Draw(1)])
+            .upgraded_effects(&[Damage(3), Draw(2)]),
+        CardInfo::new("BGBludgeon", 3, CardType::Attack, CardTarget::Enemy, &[Damage(7)])
+            .upgraded_effects(&[Damage(10)]),
+        CardInfo::new("BGUppercut", 2, CardType::Attack, CardTarget::Enemy, &[
                 Damage(3),
                 ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 1 },
                 ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 },
-            ],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[
+            ])
+            .upgraded_effects(&[
                 Damage(3),
                 ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 },
                 ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 2 },
             ]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGCarnage", cost: 2, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(4)], exhaust: false, ethereal: true,
-            upgraded_cost: None, upgraded_effects: Some(&[Damage(6)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGBlood for Blood", cost: 3, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(4)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Damage(5)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGWild Strike", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[Damage(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[Damage(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGImmolate", cost: 2, card_type: CardType::Attack, target: CardTarget::AllEnemy,
-            effects: &[DamageAll(5), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[DamageAll(7), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGBody Slam", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[DamageBasedOn(DamageSource::CurrentBlock)], exhaust: false, ethereal: false,
-            upgraded_cost: Some(0), upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGRampage", cost: 1, card_type: CardType::Attack, target: CardTarget::Enemy,
-            effects: &[DamageBasedOn(DamageSource::ExhaustPileSize)], exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[
+        CardInfo::new("BGCarnage", 2, CardType::Attack, CardTarget::Enemy, &[Damage(4)])
+            .ethereal()
+            .upgraded_effects(&[Damage(6)]),
+        CardInfo::new("BGBlood for Blood", 3, CardType::Attack, CardTarget::Enemy, &[Damage(4)])
+            .upgraded_effects(&[Damage(5)]),
+        CardInfo::new("BGWild Strike", 1, CardType::Attack, CardTarget::Enemy,
+            &[Damage(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])
+            .upgraded_effects(&[Damage(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
+        CardInfo::new("BGImmolate", 2, CardType::Attack, CardTarget::AllEnemy,
+            &[DamageAll(5), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }])
+            .upgraded_effects(&[DamageAll(7), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }]),
+        CardInfo::new("BGBody Slam", 1, CardType::Attack, CardTarget::Enemy,
+            &[DamageBasedOn(DamageSource::CurrentBlock)])
+            .upgraded_cost(0),
+        CardInfo::new("BGRampage", 1, CardType::Attack, CardTarget::Enemy,
+            &[DamageBasedOn(DamageSource::ExhaustPileSize)])
+            .upgraded_effects(&[
                 SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust },
                 DamageBasedOn(DamageSource::ExhaustPileSize),
             ]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
         // ── Verified skills ──
-        CardInfo {
-            id: "BGPower Through", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[Block(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGShrug It Off", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[Block(2), Draw(1)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Block(3), Draw(1)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGTrue Grit", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[Block(1), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Block(2), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGBurning Pact", cost: 1, card_type: CardType::Skill, target: CardTarget::None,
-            effects: &[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(2)], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(3)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
+        CardInfo::new("BGPower Through", 1, CardType::Skill, CardTarget::_Self,
+            &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])
+            .upgraded_effects(&[Block(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
+        CardInfo::new("BGShrug It Off", 1, CardType::Skill, CardTarget::_Self, &[Block(2), Draw(1)])
+            .upgraded_effects(&[Block(3), Draw(1)]),
+        CardInfo::new("BGTrue Grit", 1, CardType::Skill, CardTarget::_Self,
+            &[Block(1), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }])
+            .upgraded_effects(&[Block(2), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }]),
+        CardInfo::new("BGBurning Pact", 1, CardType::Skill, CardTarget::None,
+            &[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(2)])
+            .upgraded_effects(&[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(3)]),
         // BGSentinel excluded: has triggerOnExhaust (gain energy) not yet modeled
-        CardInfo {
-            id: "BGGhostly Armor", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[Block(2)], exhaust: false, ethereal: true,
-            upgraded_cost: None, upgraded_effects: Some(&[Block(3)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGImpervious", cost: 2, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[Block(6)], exhaust: true, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[Block(8)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGDisarm", cost: 1, card_type: CardType::Skill, target: CardTarget::Enemy,
-            effects: &[ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 }],
-            exhaust: true, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 3 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGShockwave", cost: 2, card_type: CardType::Skill, target: CardTarget::AllEnemy,
-            effects: &[
+        CardInfo::new("BGGhostly Armor", 1, CardType::Skill, CardTarget::_Self, &[Block(2)])
+            .ethereal()
+            .upgraded_effects(&[Block(3)]),
+        CardInfo::new("BGImpervious", 2, CardType::Skill, CardTarget::_Self, &[Block(6)])
+            .exhaust()
+            .upgraded_effects(&[Block(8)]),
+        CardInfo::new("BGDisarm", 1, CardType::Skill, CardTarget::Enemy,
+            &[ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 }])
+            .exhaust()
+            .upgraded_effects(&[ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 3 }]),
+        CardInfo::new("BGShockwave", 2, CardType::Skill, CardTarget::AllEnemy, &[
                 ApplyPower { target: AllEnemies, power_id: "BGWeakened", amount: 1 },
                 ApplyPower { target: AllEnemies, power_id: "BGVulnerable", amount: 1 },
-            ],
-            exhaust: true, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[
+            ])
+            .exhaust()
+            .upgraded_effects(&[
                 ApplyPower { target: AllEnemies, power_id: "BGWeakened", amount: 2 },
                 ApplyPower { target: AllEnemies, power_id: "BGVulnerable", amount: 2 },
             ]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGSeeing Red", cost: 1, card_type: CardType::Skill, target: CardTarget::None,
-            effects: &[GainEnergy(2)], exhaust: true, ethereal: false,
-            upgraded_cost: Some(0), upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGOffering", cost: 0, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[LoseHP(1), GainEnergy(2), Draw(3)], exhaust: true, ethereal: false,
-            upgraded_cost: None, upgraded_effects: Some(&[LoseHP(1), GainEnergy(2), Draw(5)]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGRupture", cost: 1, card_type: CardType::Skill, target: CardTarget::_Self,
-            effects: &[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(0),
-            upgraded_effects: Some(&[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
+        CardInfo::new("BGSeeing Red", 1, CardType::Skill, CardTarget::None, &[GainEnergy(2)])
+            .exhaust()
+            .upgraded_cost(0),
+        CardInfo::new("BGOffering", 0, CardType::Skill, CardTarget::_Self, &[LoseHP(1), GainEnergy(2), Draw(3)])
+            .exhaust()
+            .upgraded_effects(&[LoseHP(1), GainEnergy(2), Draw(5)]),
+        CardInfo::new("BGRupture", 1, CardType::Skill, CardTarget::_Self,
+            &[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
+            .upgraded_cost(0)
+            .upgraded_effects(&[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 2 }]),
         // ── Verified powers (just ApplyPower, no side effects) ──
-        CardInfo {
-            id: "BGInflame", cost: 2, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "Strength", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(1), upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGMetallicize", cost: 1, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "Metallicize", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(0),
-            upgraded_effects: Some(&[ApplyPower { target: _Self, power_id: "Metallicize", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGDemon Form", cost: 3, card_type: CardType::Power, target: CardTarget::None,
-            effects: &[ApplyPower { target: _Self, power_id: "DemonForm", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(2), upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGBarricade", cost: 2, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "Barricade", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(1), upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGBerserk", cost: 1, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "BGBerserk", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[ApplyPower { target: _Self, power_id: "BGBerserk", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGCombust", cost: 1, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "BGCombust", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[ApplyPower { target: _Self, power_id: "BGCombust", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGCorruption", cost: 3, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "BGCorruption", amount: 3 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(2), upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGDark Embrace", cost: 2, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "BGDarkEmbrace", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(1), upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGEvolve", cost: 1, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "Evolve", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(0),
-            upgraded_effects: Some(&[ApplyPower { target: _Self, power_id: "Evolve", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGFeel No Pain", cost: 1, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "FeelNoPain", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: Some(0),
-            upgraded_effects: Some(&[ApplyPower { target: _Self, power_id: "FeelNoPain", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGJuggernaut", cost: 2, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 1 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 2 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "BGFire Breathing", cost: 1, card_type: CardType::Power, target: CardTarget::_Self,
-            effects: &[ApplyPower { target: _Self, power_id: "FireBreathing", amount: 2 }],
-            exhaust: false, ethereal: false,
-            upgraded_cost: None,
-            upgraded_effects: Some(&[ApplyPower { target: _Self, power_id: "FireBreathing", amount: 3 }]),
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
+        CardInfo::new("BGInflame", 2, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
+            .upgraded_cost(1),
+        CardInfo::new("BGMetallicize", 1, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "Metallicize", amount: 1 }])
+            .upgraded_cost(0)
+            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "Metallicize", amount: 2 }]),
+        CardInfo::new("BGDemon Form", 3, CardType::Power, CardTarget::None,
+            &[ApplyPower { target: _Self, power_id: "DemonForm", amount: 1 }])
+            .upgraded_cost(2),
+        CardInfo::new("BGBarricade", 2, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "Barricade", amount: 1 }])
+            .upgraded_cost(1),
+        CardInfo::new("BGBerserk", 1, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "BGBerserk", amount: 1 }])
+            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "BGBerserk", amount: 2 }]),
+        CardInfo::new("BGCombust", 1, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "BGCombust", amount: 1 }])
+            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "BGCombust", amount: 2 }]),
+        CardInfo::new("BGCorruption", 3, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "BGCorruption", amount: 3 }])
+            .upgraded_cost(2),
+        CardInfo::new("BGDark Embrace", 2, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "BGDarkEmbrace", amount: 1 }])
+            .upgraded_cost(1),
+        CardInfo::new("BGEvolve", 1, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "Evolve", amount: 1 }])
+            .upgraded_cost(0)
+            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "Evolve", amount: 2 }]),
+        CardInfo::new("BGFeel No Pain", 1, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "FeelNoPain", amount: 1 }])
+            .upgraded_cost(0)
+            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "FeelNoPain", amount: 2 }]),
+        CardInfo::new("BGJuggernaut", 2, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 1 }])
+            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 2 }]),
+        CardInfo::new("BGFire Breathing", 1, CardType::Power, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "FireBreathing", amount: 2 }])
+            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "FireBreathing", amount: 3 }]),
         // ── Status / Curse ──
-        CardInfo {
-            id: "Dazed", cost: -2, card_type: CardType::Status, target: CardTarget::None,
-            effects: &[], exhaust: false, ethereal: true,
-            upgraded_cost: None, upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "Wound", cost: -2, card_type: CardType::Status, target: CardTarget::None,
-            effects: &[], exhaust: false, ethereal: false,
-            upgraded_cost: None, upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
-        CardInfo {
-            id: "AscendersBane", cost: -2, card_type: CardType::Curse, target: CardTarget::None,
-            effects: &[], exhaust: false, ethereal: true,
-            upgraded_cost: None, upgraded_effects: None,
-            upgraded_exhaust: None, upgraded_ethereal: None,
-        },
+        CardInfo::new("Dazed", -2, CardType::Status, CardTarget::None, &[])
+            .ethereal(),
+        CardInfo::new("Wound", -2, CardType::Status, CardTarget::None, &[]),
+        CardInfo::new("AscendersBane", -2, CardType::Curse, CardTarget::None, &[])
+            .ethereal(),
     ];
 
     cards.into_iter().map(|c| (c.id, c)).collect()
