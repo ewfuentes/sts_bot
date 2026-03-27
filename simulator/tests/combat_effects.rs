@@ -1508,6 +1508,99 @@ fn headbutt_empty_discard_skips_selection() {
     }
 }
 
+// ── DamageSource::StrikesInHand / StrengthMultiplier ──
+
+#[test]
+fn perfected_strike_bonus_per_strike() {
+    let hand = vec![
+        make_hand_card("BGPerfected Strike", 2, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGTwin Strike", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGPerfected Strike", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // 2 other Strikes in hand (BGStrike_R, BGTwin Strike)
+        // Damage = 3 + 1*2 = 5
+        assert_eq!(monsters[0].hp, 15); // 20 - 5
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn perfected_strike_no_other_strikes() {
+    let hand = vec![
+        make_hand_card("BGPerfected Strike", 2, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGPerfected Strike", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 17); // 20 - 3 (base only)
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn heavy_blade_scales_with_strength() {
+    let hand = vec![make_hand_card("BGHeavy Blade", 2, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [{"id": "Strength", "amount": 2}],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGHeavy Blade", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // Damage = 3 + 3*2 = 9
+        assert_eq!(monsters[0].hp, 11); // 20 - 9
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn heavy_blade_no_strength() {
+    let hand = vec![make_hand_card("BGHeavy Blade", 2, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGHeavy Blade", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 17); // 20 - 3 (base only)
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ConditionalOnDieRoll ──
 
 #[test]

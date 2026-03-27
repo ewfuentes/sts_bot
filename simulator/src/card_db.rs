@@ -295,6 +295,12 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("BGHeadbutt", 1, CardType::Attack, CardTarget::Enemy,
             &[Damage(2), SelectFromDiscardToDrawTop])
             .upgraded_effects(&[Damage(3), SelectFromDiscardToDrawTop]),
+        CardInfo::new("BGPerfected Strike", 2, CardType::Attack, CardTarget::Enemy,
+            &[DamageBasedOn(DamageSource::StrikesInHand { base: 3, per_strike: 1 })])
+            .upgraded_effects(&[DamageBasedOn(DamageSource::StrikesInHand { base: 3, per_strike: 2 })]),
+        CardInfo::new("BGHeavy Blade", 2, CardType::Attack, CardTarget::Enemy,
+            &[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 3 })])
+            .upgraded_effects(&[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 5 })]),
         CardInfo::new("BGFeed", 1, CardType::Attack, CardTarget::Enemy,
             &[Damage(3), StrengthIfTargetDead(1)])
             .exhaust()

@@ -1002,11 +1002,23 @@ impl GameState {
             Effect::DamageBasedOn(source) => {
                 if let Some(idx) = target_index {
                     let idx = idx as usize;
-                    if let Some(Screen::Combat { monsters, player_block, exhaust_pile, .. }) = self.find_combat_mut() {
+                    if let Some(Screen::Combat { monsters, player_block, exhaust_pile, hand, player_powers, .. }) = self.find_combat_mut() {
                         let amount = match source {
                             DamageSource::ExhaustPileSize => exhaust_pile.len() as u16,
                             DamageSource::CurrentBlock => *player_block,
-                            _ => unimplemented!("DamageSource variant not yet handled"),
+                            DamageSource::StrikesInHand { base, per_strike } => {
+                                let count = hand.iter()
+                                    .filter(|hc| hc.card.id.contains("Strike"))
+                                    .count() as i16;
+                                (*base + *per_strike * count).max(0) as u16
+                            }
+                            DamageSource::StrengthMultiplier { base, multiplier } => {
+                                let str_amount = player_powers.iter()
+                                    .find(|p| p.id == "Strength")
+                                    .map(|p| p.amount as i16)
+                                    .unwrap_or(0);
+                                (*base + *multiplier * str_amount).max(0) as u16
+                            }
                         };
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             apply_damage_to_monster(&mut monsters[idx], amount);
