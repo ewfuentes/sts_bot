@@ -1208,6 +1208,16 @@ impl GameState {
                     return EffectResult::Paused;
                 }
             }
+            Effect::ConditionalOnDieRoll { min, max, effects } => {
+                if let Some(Screen::Combat { die_roll, effect_queue, .. }) = self.screen.last_mut() {
+                    let roll = die_roll.expect("ConditionalOnDieRoll used before die was rolled");
+                    if roll >= *min && roll <= *max {
+                        for effect in effects.iter().rev() {
+                            effect_queue.push_front((effect.clone(), target_index));
+                        }
+                    }
+                }
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }

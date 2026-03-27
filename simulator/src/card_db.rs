@@ -350,6 +350,13 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             &[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
             .upgraded_cost(0)
             .upgraded_effects(&[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 2 }]),
+        CardInfo::new("BGSpot Weakness", 1, CardType::Skill, CardTarget::_Self,
+            &[ConditionalOnDieRoll { min: 1, max: 3, effects: &[
+                ApplyPower { target: _Self, power_id: "Strength", amount: 1 },
+            ]}])
+            .upgraded_effects(&[ConditionalOnDieRoll { min: 1, max: 4, effects: &[
+                ApplyPower { target: _Self, power_id: "Strength", amount: 1 },
+            ]}]),
         CardInfo::new("BGDouble Tap", 1, CardType::Skill, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGDoubleAttack", amount: 1 }])
             .upgraded_cost(0),

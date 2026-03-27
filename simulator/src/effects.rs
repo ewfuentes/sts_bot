@@ -55,6 +55,12 @@ pub enum Effect {
         per_energy: &'static [Effect],
         bonus: i16,
     },
+    /// If the current die roll is within [min, max] (inclusive), push effects to the queue.
+    ConditionalOnDieRoll {
+        min: u8,
+        max: u8,
+        effects: &'static [Effect],
+    },
     Custom(&'static str),
 }
 
