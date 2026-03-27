@@ -85,6 +85,12 @@ pub enum Screen {
         #[serde(skip)]
         action: HandSelectAction,
     },
+    ChoiceSelect {
+        #[serde(skip)]
+        choices: Vec<(String, Vec<Effect>)>,
+        #[serde(skip)]
+        target_index: Option<u8>,
+    },
     CustomScreen {
         screen_enum: String,
         options: Vec<String>,

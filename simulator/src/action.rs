@@ -76,6 +76,10 @@ pub enum Action {
         card: Card,
         choice_index: u8,
     },
+    PickChoice {
+        label: String,
+        choice_index: u8,
+    },
     PickCustomScreenOption {
         label: String,
         choice_index: u8,
@@ -117,6 +121,7 @@ impl Action {
             Action::OpenChest { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickGridCard { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickHandCard { choice_index, .. } => format!("choose {}", choice_index),
+            Action::PickChoice { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickCustomScreenOption { choice_index, .. } => format!("choose {}", choice_index),
             Action::PlayCard { hand_index, target_index, .. } => match target_index {
                 Some(t) => format!("play {} {}", hand_index + 1, t),

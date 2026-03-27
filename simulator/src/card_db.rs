@@ -229,6 +229,11 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("BGClash", 0, CardType::Attack, CardTarget::Enemy, &[Damage(3)])
             .play_condition(PlayCondition::HandAllAttacks)
             .upgraded_effects(&[Damage(4)]),
+        CardInfo::new("BGIron Wave", 1, CardType::Attack, CardTarget::Enemy, &[Damage(1), Block(1)])
+            .upgraded_effects(&[ChooseOne(&[
+                ("Spear", &[Damage(2), Block(1)]),
+                ("Shield", &[Damage(1), Block(2)]),
+            ])]),
         // ── Verified skills ──
         CardInfo::new("BGPower Through", 1, CardType::Skill, CardTarget::_Self,
             &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])

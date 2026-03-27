@@ -855,6 +855,24 @@ impl GameState {
                     self.drain_effect_queue();
                 }
             }
+            Action::PickChoice { choice_index, .. } => {
+                let idx = *choice_index as usize;
+                if let Screen::ChoiceSelect { choices, target_index } = self.current_screen() {
+                    if idx < choices.len() {
+                        let effects = choices[idx].1.clone();
+                        let target = *target_index;
+                        self.pop_screen();
+                        // Push chosen effects to the front of the queue (they replace
+                        // the ChooseOne's position in the effect sequence).
+                        if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
+                            for effect in effects.into_iter().rev() {
+                                effect_queue.push_front((effect, target));
+                            }
+                        }
+                        self.drain_effect_queue();
+                    }
+                }
+            }
             Action::Skip => {
                 if matches!(self.current_screen(), Screen::Combat { .. }) {
                     self.finish_combat();
@@ -1067,6 +1085,17 @@ impl GameState {
                     return EffectResult::Paused;
                 }
             }
+            Effect::ChooseOne(options) => {
+                let choices: Vec<(String, Vec<Effect>)> = options
+                    .iter()
+                    .map(|(label, effects)| (label.to_string(), effects.to_vec()))
+                    .collect();
+                self.push_screen(Screen::ChoiceSelect {
+                    choices,
+                    target_index,
+                });
+                return EffectResult::Paused;
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
@@ -1263,6 +1292,11 @@ impl GameState {
             }
             Screen::HandSelect { cards, picked_indices, min_cards, max_cards, .. } => {
                 hand_select_actions(cards, picked_indices.len() as u8, *min_cards, *max_cards)
+            }
+            Screen::ChoiceSelect { choices, .. } => {
+                choices.iter().enumerate().map(|(i, (label, _))| {
+                    Action::PickChoice { label: label.clone(), choice_index: i as u8 }
+                }).collect()
             }
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],

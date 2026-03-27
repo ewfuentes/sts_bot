@@ -30,6 +30,9 @@ pub enum Effect {
     },
     /// Player chooses card(s) from hand and applies an action to each.
     SelectFromHand { min: u8, max: u8, action: HandSelectAction },
+    /// Present the player with a choice between N named effect lists.
+    /// Each entry is (label, effects). The player picks one and those effects are queued.
+    ChooseOne(&'static [(&'static str, &'static [Effect])]),
     Custom(&'static str),
 }
 

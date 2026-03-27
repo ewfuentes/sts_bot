@@ -53,6 +53,7 @@ fn action_type(action: &Action) -> &str {
         Action::OpenChest { .. } => "open_chest",
         Action::PickGridCard { .. } => "pick_grid_card",
         Action::PickHandCard { .. } => "pick_hand_card",
+        Action::PickChoice { .. } => "pick_choice",
         Action::PickCustomScreenOption { .. } => "pick_custom_screen_option",
         Action::PlayCard { .. } => "play_card",
         Action::EndTurn => "end_turn",
