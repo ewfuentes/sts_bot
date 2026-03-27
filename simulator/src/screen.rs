@@ -91,6 +91,9 @@ pub enum Screen {
     DiscardSelect {
         cards: Vec<(u8, Card)>,
     },
+    ExhaustSelect {
+        cards: Vec<(u8, Card)>,
+    },
     ChoiceSelect {
         #[serde(skip)]
         choices: Vec<(String, Vec<Effect>)>,
