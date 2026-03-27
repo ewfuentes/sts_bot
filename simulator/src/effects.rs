@@ -32,6 +32,9 @@ pub enum Effect {
     SelectFromHand { min: u8, max: u8, action: HandSelectAction },
     /// Double the player's current block.
     DoubleBlock,
+    /// Gain temporary strength (capped at MAX_STRENGTH). Applies both Strength
+    /// and LoseStrength for the clamped amount.
+    GainTemporaryStrength(i16),
     /// Double the player's current strength.
     DoubleStrength,
     /// For each card in hand matching the filter, push per_card effects into the queue.
