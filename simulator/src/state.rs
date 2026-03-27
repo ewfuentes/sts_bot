@@ -986,6 +986,18 @@ impl GameState {
                     *player_block += *amount as u16;
                 }
             }
+            Effect::DoubleBlock => {
+                if let Some(Screen::Combat { player_block, .. }) = self.screen.last_mut() {
+                    *player_block *= 2;
+                }
+            }
+            Effect::DoubleStrength => {
+                if let Some(Screen::Combat { player_powers, .. }) = self.screen.last_mut() {
+                    if let Some(strength) = player_powers.iter_mut().find(|p| p.id == "Strength") {
+                        strength.amount *= 2;
+                    }
+                }
+            }
             Effect::ApplyPower { target, power_id, amount } => {
                 if let Some(Screen::Combat { player_powers, monsters, .. }) = self.screen.last_mut() {
                     match target {
