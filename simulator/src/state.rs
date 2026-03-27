@@ -1104,10 +1104,15 @@ impl GameState {
             }
             Effect::ForEachInHand { filter, per_card, exhaust_matched } => {
                 if let Some(Screen::Combat { hand, exhaust_pile, effect_queue, .. }) = self.screen.last_mut() {
-                    let matches_filter = |card_type: &str| match filter {
-                        HandFilter::AllCards => true,
-                        HandFilter::Attacks => card_type == "ATTACK",
-                        HandFilter::NonAttacks => card_type != "ATTACK",
+                    let matches_filter = |card: &Card| {
+                        let card_type = card_db::lookup(&card.id)
+                            .map(|i| i.card_type)
+                            .unwrap_or(card_db::CardType::Skill);
+                        match filter {
+                            HandFilter::AllCards => true,
+                            HandFilter::Attacks => card_type == card_db::CardType::Attack,
+                            HandFilter::NonAttacks => card_type != card_db::CardType::Attack,
+                        }
                     };
 
                     // Count matching cards and optionally exhaust them
@@ -1115,7 +1120,7 @@ impl GameState {
                     if *exhaust_matched {
                         let mut kept = Vec::new();
                         for hc in hand.drain(..) {
-                            if matches_filter(&hc.card.card_type) {
+                            if matches_filter(&hc.card) {
                                 count += 1;
                                 exhaust_pile.push(hc.card);
                             } else {
@@ -1124,7 +1129,7 @@ impl GameState {
                         }
                         *hand = kept;
                     } else {
-                        count = hand.iter().filter(|hc| matches_filter(&hc.card.card_type)).count();
+                        count = hand.iter().filter(|hc| matches_filter(&hc.card)).count();
                     }
 
                     // Push per_card effects N times to front of queue (in order)
