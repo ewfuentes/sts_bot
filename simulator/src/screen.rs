@@ -94,6 +94,14 @@ pub enum Screen {
     ExhaustSelect {
         cards: Vec<(u8, Card)>,
     },
+    TargetSelect {
+        #[serde(skip, default)]
+        card: Option<Card>,
+        #[serde(skip)]
+        effects: Vec<Effect>,
+        #[serde(skip)]
+        force_exhaust: bool,
+    },
     ChoiceSelect {
         #[serde(skip)]
         choices: Vec<(String, Vec<Effect>)>,

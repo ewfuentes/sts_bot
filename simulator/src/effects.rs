@@ -42,6 +42,10 @@ pub enum Effect {
     SelectFromDiscardToDrawTop,
     /// Player chooses a card from the exhaust pile to put in hand.
     SelectFromExhaustToHand,
+    /// Draw the top card from the draw pile and play it for free.
+    /// Exhausts it (unless it's a Power). If the card targets an enemy,
+    /// pushes a TargetSelect screen for target selection.
+    PlayTopOfDraw,
     /// Double the player's current block.
     DoubleBlock,
     /// Gain temporary strength (capped at MAX_STRENGTH). Applies both Strength

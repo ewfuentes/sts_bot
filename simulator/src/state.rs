@@ -825,14 +825,7 @@ impl GameState {
                     // 5-6. Draw 5 cards (reshuffle if needed)
                     let draw_count = 5usize;
                     for _ in 0..draw_count {
-                        if draw_pile.is_empty() && !discard_pile.is_empty() {
-                            // Reshuffle: move all discard → draw, shuffle
-                            draw_pile.append(discard_pile);
-                            // Deterministic shuffle would use a seed; for now just reverse
-                            // (tests can set draw pile order explicitly)
-                            draw_pile.reverse();
-                        }
-                        if let Some(card) = draw_pile.pop() {
+                        if let Some(card) = draw_card(draw_pile, discard_pile) {
                             hand.push(HandCard { card });
                         }
                     }
@@ -920,6 +913,29 @@ impl GameState {
                         }
                         self.drain_effect_queue();
                     }
+                }
+            }
+            Action::PickTarget { target_index, .. } => {
+                let target = Some(*target_index);
+                if let Screen::TargetSelect { card: Some(card), effects, force_exhaust } = self.current_screen() {
+                    let effects = effects.clone();
+                    let card = card.clone();
+                    let force_exhaust = *force_exhaust;
+                    self.pop_screen();
+                    if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                        for effect in effects.iter().rev() {
+                            effect_queue.push_front((effect.clone(), target));
+                        }
+                        if force_exhaust {
+                            effect_queue.push_back((Effect::DisposeCard {
+                                card,
+                                exhaust: true,
+                                rebound: false,
+                            }, None));
+                        }
+                        // Powers (force_exhaust=false) are consumed — no disposition needed.
+                    }
+                    self.drain_effect_queue();
                 }
             }
             Action::Skip => {
@@ -1112,11 +1128,7 @@ impl GameState {
             Effect::Draw(count) => {
                 if let Some(Screen::Combat { hand, draw_pile, discard_pile, .. }) = self.find_combat_mut() {
                     for _ in 0..*count {
-                        if draw_pile.is_empty() && !discard_pile.is_empty() {
-                            draw_pile.append(discard_pile);
-                            draw_pile.reverse();
-                        }
-                        if let Some(card) = draw_pile.pop() {
+                        if let Some(card) = draw_card(draw_pile, discard_pile) {
                             hand.push(HandCard { card });
                         }
                     }
@@ -1215,6 +1227,49 @@ impl GameState {
                         .map(|(i, c)| (i as u8, c.clone())).collect();
                     self.push_screen(Screen::ExhaustSelect { cards });
                     return EffectResult::Paused;
+                }
+            }
+            Effect::PlayTopOfDraw => {
+                if let Some(Screen::Combat { draw_pile, discard_pile, effect_queue, .. }) = self.find_combat_mut() {
+                    let card = if let Some(c) = draw_card(draw_pile, discard_pile) {
+                        c
+                    } else {
+                        return EffectResult::Continue;
+                    };
+                    let info = card_db::lookup(&card.id);
+                    // Unplayable cards (Dazed, statuses) have no effects — they
+                    // just get exhausted. This matches the game behavior.
+                    let effects: Vec<Effect> = info
+                        .map(|i| i.effective_effects(card.upgraded).to_vec())
+                        .unwrap_or_default();
+                    let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
+                    let is_power = info
+                        .map(|i| i.card_type == card_db::CardType::Power)
+                        .unwrap_or(false);
+                    let force_exhaust = !is_power;
+
+                    if has_target {
+                        // Need target selection — push screen and pause
+                        self.push_screen(Screen::TargetSelect {
+                            card: Some(card),
+                            effects,
+                            force_exhaust,
+                        });
+                        return EffectResult::Paused;
+                    } else {
+                        // No target needed — queue effects + disposition directly
+                        for effect in effects.iter().rev() {
+                            effect_queue.push_front((effect.clone(), None));
+                        }
+                        if force_exhaust {
+                            effect_queue.push_back((Effect::DisposeCard {
+                                card: card.clone(),
+                                exhaust: true,
+                                rebound: false,
+                            }, None));
+                        }
+                        // Powers are consumed (no disposition needed)
+                    }
                 }
             }
             Effect::ForEachInHand { filter, per_card, exhaust_matched } => {
@@ -1519,6 +1574,23 @@ impl GameState {
                 cards.iter().enumerate().map(|(i, (_, card))| {
                     Action::PickExhaust { card: card.clone(), choice_index: i as u8 }
                 }).collect()
+            }
+            Screen::TargetSelect { card: Some(card), .. } => {
+                // Generate one PickTarget per live monster
+                if let Some(Screen::Combat { monsters, .. }) = self.screen.iter().rev()
+                    .find(|s| matches!(s, Screen::Combat { .. }))
+                {
+                    monsters.iter().enumerate()
+                        .filter(|(_, m)| !m.is_gone)
+                        .map(|(i, m)| Action::PickTarget {
+                            card: card.clone(),
+                            target_index: i as u8,
+                            target_name: m.name.clone(),
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                }
             }
             Screen::ChoiceSelect { choices, .. } => {
                 choices.iter().enumerate().map(|(i, (label, _))| {
@@ -1838,6 +1910,16 @@ fn apply_hand_select_action(
             // TODO: upgrade the card and put it back in hand
         }
     }
+}
+
+/// Draw a card from the draw pile, reshuffling discard into draw if needed.
+/// Returns None if both piles are empty.
+fn draw_card(draw_pile: &mut Vec<Card>, discard_pile: &mut Vec<Card>) -> Option<Card> {
+    if draw_pile.is_empty() && !discard_pile.is_empty() {
+        draw_pile.append(discard_pile);
+        draw_pile.reverse();
+    }
+    draw_pile.pop()
 }
 
 /// Move a card to the exhaust pile and queue any on-exhaust effects.

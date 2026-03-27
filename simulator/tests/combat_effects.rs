@@ -1508,6 +1508,157 @@ fn headbutt_empty_discard_skips_selection() {
     }
 }
 
+// ── PlayTopOfDraw ──
+
+#[test]
+fn havoc_plays_untargeted_card_from_draw() {
+    let hand = vec![make_hand_card("BGHavoc", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [make_card("BGDefend_R", 1, "SKILL")],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGHavoc", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, draw_pile, exhaust_pile, discard_pile, .. } = state.current_screen() {
+        assert_eq!(*player_block, 1); // Defend gave 1 block
+        assert!(draw_pile.is_empty());
+        // Defend exhausted (Havoc forces exhaust), Havoc discarded
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(exhaust_pile[0].id, "BGDefend_R");
+        assert_eq!(discard_pile.len(), 1);
+        assert_eq!(discard_pile[0].id, "BGHavoc");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn havoc_plays_targeted_card_needs_target_select() {
+    let hand = vec![make_hand_card("BGHavoc", 1, "SKILL")];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0),
+        make_monster("BGGreenLouse", "Louse", 5, 0),
+    ];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [make_card("BGStrike_R", 1, "ATTACK")],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGHavoc", 1, "SKILL", 0, None));
+
+    // Should push TargetSelect for the Strike
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }),
+        "Expected TargetSelect, got {:?}", state.current_screen());
+
+    let actions = state.available_actions();
+    assert_eq!(actions.len(), 2); // two live monsters
+
+    // Pick Jaw Worm
+    state.apply(&Action::PickTarget {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        target_index: 0,
+        target_name: "Jaw Worm".to_string(),
+    });
+
+    if let Screen::Combat { monsters, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 7); // 8 - 1
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(exhaust_pile[0].id, "BGStrike_R");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn havoc_empty_draw_does_nothing() {
+    let hand = vec![make_hand_card("BGHavoc", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGHavoc", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { draw_pile, discard_pile, .. } = state.current_screen() {
+        assert!(draw_pile.is_empty());
+        assert_eq!(discard_pile.len(), 1); // just Havoc
+        assert_eq!(discard_pile[0].id, "BGHavoc");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn havoc_plays_power_card_without_exhaust() {
+    let hand = vec![make_hand_card("BGHavoc", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [make_card("BGInflame", 2, "POWER")],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGHavoc", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, exhaust_pile, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength");
+        assert!(strength.is_some()); // Inflame applied
+        assert!(exhaust_pile.is_empty()); // Power not exhausted
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── SelectFromExhaustToHand ──
 
 #[test]
