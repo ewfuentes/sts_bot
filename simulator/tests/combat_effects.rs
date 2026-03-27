@@ -701,6 +701,118 @@ fn rampage_upgraded_exhausts_then_deals_damage() {
     }
 }
 
+// ── ChooseOne ──
+
+#[test]
+fn iron_wave_base_deals_damage_and_blocks() {
+    let hand = vec![make_hand_card("BGIron Wave", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGIron Wave", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_block, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 7); // 8 - 1
+        assert_eq!(*player_block, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn iron_wave_upgraded_presents_choice() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGIron Wave".to_string(),
+            name: "BGIron Wave".to_string(),
+            cost: 1,
+            card_type: "ATTACK".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![upgraded.clone()];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Jaw Worm".to_string()),
+    });
+
+    // Should pause on ChoiceSelect
+    assert!(matches!(state.current_screen(), Screen::ChoiceSelect { .. }),
+        "Expected ChoiceSelect, got {:?}", state.current_screen());
+
+    let actions = state.available_actions();
+    assert_eq!(actions.len(), 2);
+    assert!(matches!(&actions[0], Action::PickChoice { label, choice_index: 0 } if label == "Spear"));
+    assert!(matches!(&actions[1], Action::PickChoice { label, choice_index: 1 } if label == "Shield"));
+}
+
+#[test]
+fn iron_wave_upgraded_spear_choice() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGIron Wave".to_string(),
+            name: "BGIron Wave".to_string(),
+            cost: 1,
+            card_type: "ATTACK".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![upgraded.clone()];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Jaw Worm".to_string()),
+    });
+    state.apply(&Action::PickChoice { label: "Spear".to_string(), choice_index: 0 });
+
+    if let Screen::Combat { monsters, player_block, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 6); // 8 - 2 (Spear)
+        assert_eq!(*player_block, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn iron_wave_upgraded_shield_choice() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGIron Wave".to_string(),
+            name: "BGIron Wave".to_string(),
+            cost: 1,
+            card_type: "ATTACK".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![upgraded.clone()];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Jaw Worm".to_string()),
+    });
+    state.apply(&Action::PickChoice { label: "Shield".to_string(), choice_index: 1 });
+
+    if let Screen::Combat { monsters, player_block, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 7); // 8 - 1 (Shield)
+        assert_eq!(*player_block, 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ExhaustFromHand (effect queue + sub-decision) ──
 
 #[test]
