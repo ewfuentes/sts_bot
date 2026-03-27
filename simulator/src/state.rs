@@ -1023,6 +1023,17 @@ impl GameState {
                     }
                 }
             }
+            Effect::DamageFixed(amount) => {
+                // Same as Damage but won't scale with strength when that's implemented
+                if let Some(idx) = target_index {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                        if idx < monsters.len() && !monsters[idx].is_gone {
+                            apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                        }
+                    }
+                }
+            }
             Effect::DamageAll(amount) => {
                 if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                     for monster in monsters.iter_mut() {
@@ -1227,6 +1238,27 @@ impl GameState {
                         .map(|(i, c)| (i as u8, c.clone())).collect();
                     self.push_screen(Screen::ExhaustSelect { cards });
                     return EffectResult::Paused;
+                }
+            }
+            Effect::FlameBarrier(thorns_damage) => {
+                if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
+                    for (i, monster) in monsters.iter().enumerate() {
+                        if monster.is_gone {
+                            continue;
+                        }
+                        // Only affect monsters that intend to attack (damage >= 0)
+                        if let Some(dmg) = monster.damage {
+                            if dmg >= 0 {
+                                let hit_count = monster.hits;
+                                for _ in 0..hit_count {
+                                    effect_queue.push_back((
+                                        Effect::DamageFixed(*thorns_damage),
+                                        Some(i as u8),
+                                    ));
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Effect::PlayTopOfDraw => {

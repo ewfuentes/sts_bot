@@ -1508,6 +1508,79 @@ fn headbutt_empty_discard_skips_selection() {
     }
 }
 
+// ── FlameBarrier ──
+
+#[test]
+fn flame_barrier_blocks_and_damages_attacking_monsters() {
+    let hand = vec![make_hand_card("BGFlame Barrier", 2, "SKILL")];
+    // Jaw Worm attacks (1 hit), Louse attacks (2 hits), Cultist buffs (no attack)
+    let mut cultist = make_monster("BGCultist", "Cultist", 10, 0);
+    cultist.intent = "BUFF".to_string();
+    cultist.damage = None;
+    let mut louse = make_monster("BGGreenLouse", "Louse", 10, 0);
+    louse.hits = 2;
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 10, 0),
+        louse,
+        cultist,
+    ];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFlame Barrier", 2, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, monsters, .. } = state.current_screen() {
+        assert_eq!(*player_block, 3);
+        // Jaw Worm: 1 hit → 1 damage
+        assert_eq!(monsters[0].hp, 9); // 10 - 1
+        // Louse: 2 hits → 2 damage
+        assert_eq!(monsters[1].hp, 8); // 10 - 2
+        // Cultist: no attack → no damage
+        assert_eq!(monsters[2].hp, 10);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn flame_barrier_skips_dead_monsters() {
+    let hand = vec![make_hand_card("BGFlame Barrier", 2, "SKILL")];
+    let mut dead = make_monster("BGJawWorm", "Jaw Worm", 0, 0);
+    dead.is_gone = true;
+    let monsters = vec![
+        dead,
+        make_monster("BGGreenLouse", "Louse", 10, 0),
+    ];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFlame Barrier", 2, "SKILL", 0, None));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 0); // dead, untouched
+        assert_eq!(monsters[1].hp, 9); // 10 - 1
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn flame_barrier_no_attacking_monsters() {
+    let hand = vec![make_hand_card("BGFlame Barrier", 2, "SKILL")];
+    let mut cultist = make_monster("BGCultist", "Cultist", 10, 0);
+    cultist.intent = "BUFF".to_string();
+    cultist.damage = None;
+    let monsters = vec![cultist];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFlame Barrier", 2, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, monsters, .. } = state.current_screen() {
+        assert_eq!(*player_block, 3); // still get block
+        assert_eq!(monsters[0].hp, 10); // no damage
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── PlayTopOfDraw ──
 
 #[test]
