@@ -32,6 +32,8 @@ pub enum Effect {
     },
     /// Player chooses card(s) from hand and applies an action to each.
     SelectFromHand { min: u8, max: u8, action: HandSelectAction },
+    /// Player chooses a card from the discard pile to put on top of draw pile.
+    SelectFromDiscardToDrawTop,
     /// Double the player's current block.
     DoubleBlock,
     /// Gain temporary strength (capped at MAX_STRENGTH). Applies both Strength
@@ -60,6 +62,13 @@ pub enum Effect {
         min: u8,
         max: u8,
         effects: &'static [Effect],
+    },
+    /// Dispose a played card to the appropriate pile. Only created dynamically
+    /// at runtime (never in static CardInfo definitions).
+    DisposeCard {
+        card: crate::types::Card,
+        exhaust: bool,
+        rebound: bool,
     },
     Custom(&'static str),
 }

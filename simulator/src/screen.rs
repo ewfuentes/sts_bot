@@ -88,6 +88,9 @@ pub enum Screen {
         #[serde(skip)]
         action: HandSelectAction,
     },
+    DiscardSelect {
+        cards: Vec<(u8, Card)>,
+    },
     ChoiceSelect {
         #[serde(skip)]
         choices: Vec<(String, Vec<Effect>)>,
