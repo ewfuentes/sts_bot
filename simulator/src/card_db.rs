@@ -235,6 +235,16 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
                 ("Shield", &[Damage(1), Block(2)]),
             ])]),
         // ── Verified skills ──
+        CardInfo::new("BGWarcry", 0, CardType::Skill, CardTarget::None,
+            &[Draw(2), SelectFromHand { min: 1, max: 1, action: HandSelectAction::PutOnTopOfDraw }])
+            .exhaust()
+            .upgraded_effects(&[Draw(3), SelectFromHand { min: 1, max: 1, action: HandSelectAction::PutOnTopOfDraw }]),
+        CardInfo::new("BGEntrench", 1, CardType::Skill, CardTarget::_Self, &[DoubleBlock])
+            .exhaust()
+            .upgraded_exhaust(false),
+        CardInfo::new("BGLimit Break", 1, CardType::Skill, CardTarget::_Self, &[DoubleStrength])
+            .exhaust()
+            .upgraded_exhaust(false),
         CardInfo::new("BGPower Through", 1, CardType::Skill, CardTarget::_Self,
             &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])
             .upgraded_effects(&[Block(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),

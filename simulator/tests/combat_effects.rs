@@ -701,6 +701,143 @@ fn rampage_upgraded_exhausts_then_deals_damage() {
     }
 }
 
+// ── DoubleBlock / DoubleStrength ──
+
+#[test]
+fn entrench_doubles_block() {
+    let hand = vec![make_hand_card("BGEntrench", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 5);
+
+    state.apply(&play_action("BGEntrench", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(*player_block, 10); // 5 * 2
+        assert_eq!(exhaust_pile.len(), 1); // exhausts
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn entrench_zero_block_stays_zero() {
+    let hand = vec![make_hand_card("BGEntrench", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGEntrench", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 0);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn limit_break_doubles_strength() {
+    let hand = vec![make_hand_card("BGLimit Break", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [{"id": "Strength", "amount": 3}],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGLimit Break", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, exhaust_pile, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 6); // 3 * 2
+        assert_eq!(exhaust_pile.len(), 1); // exhausts
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn limit_break_no_strength_does_nothing() {
+    let hand = vec![make_hand_card("BGLimit Break", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGLimit Break", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(player_powers.iter().find(|p| p.id == "Strength").is_none());
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn warcry_draws_then_puts_on_top() {
+    let hand = vec![make_hand_card("BGWarcry", 0, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGBash", 2, "ATTACK"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGWarcry", 0, "SKILL", 0, None));
+
+    // Drew 2 cards, now should be on HandSelect to put 1 on top of draw
+    assert!(matches!(state.current_screen(), Screen::HandSelect { .. }),
+        "Expected HandSelect, got {:?}", state.current_screen());
+
+    // Pick the first card to put on top of draw
+    state.apply(&Action::PickHandCard {
+        card: make_card("BGBash", 2, "ATTACK"),
+        choice_index: 0,
+    });
+
+    if let Screen::Combat { hand, draw_pile, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 1); // 2 drawn - 1 put back
+        assert_eq!(draw_pile.len(), 2); // 3 - 2 drawn + 1 put back
+        assert_eq!(exhaust_pile.len(), 1); // Warcry exhausted
+        assert_eq!(exhaust_pile[0].id, "BGWarcry");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ChooseOne ──
 
 #[test]
