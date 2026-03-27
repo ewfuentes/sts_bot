@@ -47,6 +47,12 @@ pub enum Effect {
     /// Present the player with a choice between N named effect lists.
     /// Each entry is (label, effects). The player picks one and those effects are queued.
     ChooseOne(&'static [(&'static str, &'static [Effect])]),
+    /// X-cost: present choices for spending 0..=current_energy. Per-energy effects are
+    /// repeated (energy_spent + bonus) times. Energy is deducted.
+    XCost {
+        per_energy: &'static [Effect],
+        bonus: i16,
+    },
     Custom(&'static str),
 }
 

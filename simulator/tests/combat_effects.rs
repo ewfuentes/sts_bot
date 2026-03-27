@@ -1432,6 +1432,96 @@ fn fiend_fire_empty_hand_deals_no_damage() {
     }
 }
 
+// ── XCost ──
+
+#[test]
+fn whirlwind_presents_energy_choices() {
+    let hand = vec![make_hand_card("BGWhirlwind", -1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGWhirlwind", -1, "ATTACK", 0, None));
+
+    // Should present 4 choices: Spend 0, 1, 2, 3
+    if let Screen::ChoiceSelect { choices, .. } = state.current_screen() {
+        assert_eq!(choices.len(), 4);
+        assert_eq!(choices[0].0, "Spend 0");
+        assert_eq!(choices[3].0, "Spend 3");
+    } else {
+        panic!("Expected ChoiceSelect, got {:?}", state.current_screen());
+    }
+}
+
+#[test]
+fn whirlwind_spend_two_damages_all_twice() {
+    let hand = vec![make_hand_card("BGWhirlwind", -1, "ATTACK")];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 20, 0),
+        make_monster("BGGreenLouse", "Louse", 10, 0),
+    ];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGWhirlwind", -1, "ATTACK", 0, None));
+    state.apply(&Action::PickChoice { label: "Spend 2".to_string(), choice_index: 2 });
+
+    if let Screen::Combat { monsters, player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 1); // 3 - 2
+        assert_eq!(monsters[0].hp, 18); // 20 - 2 (1 damage x 2 hits)
+        assert_eq!(monsters[1].hp, 8);  // 10 - 2
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn whirlwind_spend_zero_deals_no_damage() {
+    let hand = vec![make_hand_card("BGWhirlwind", -1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGWhirlwind", -1, "ATTACK", 0, None));
+    state.apply(&Action::PickChoice { label: "Spend 0".to_string(), choice_index: 0 });
+
+    if let Screen::Combat { monsters, player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 3); // no energy spent
+        assert_eq!(monsters[0].hp, 8); // no damage
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn whirlwind_upgraded_gets_bonus_hit() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGWhirlwind".to_string(),
+            name: "BGWhirlwind".to_string(),
+            cost: -1,
+            card_type: "ATTACK".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![upgraded.clone()];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 2, 0);
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: None,
+        target_name: None,
+    });
+    // Spend 2 energy → 2 + 1 bonus = 3 hits
+    state.apply(&Action::PickChoice { label: "Spend 2".to_string(), choice_index: 2 });
+
+    if let Screen::Combat { monsters, player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 0); // 2 - 2
+        assert_eq!(monsters[0].hp, 17); // 20 - 3 (1 damage x 3 hits)
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ChooseOne ──
 
 #[test]

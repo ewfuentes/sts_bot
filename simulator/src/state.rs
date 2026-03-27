@@ -862,13 +862,19 @@ impl GameState {
             }
             Action::PickChoice { choice_index, .. } => {
                 let idx = *choice_index as usize;
-                if let Screen::ChoiceSelect { choices, target_index } = self.current_screen() {
+                if let Screen::ChoiceSelect { choices, target_index, energy_costs } = self.current_screen() {
                     if idx < choices.len() {
                         let effects = choices[idx].1.clone();
                         let target = *target_index;
+                        let energy_cost = energy_costs.get(idx).copied();
                         self.pop_screen();
-                        // Push chosen effects to the front of the queue (they replace
-                        // the ChooseOne's position in the effect sequence).
+                        // Deduct energy if this choice has an energy cost (XCost)
+                        if let Some(cost) = energy_cost {
+                            if let Some(Screen::Combat { player_energy, .. }) = self.screen.last_mut() {
+                                *player_energy = player_energy.saturating_sub(cost);
+                            }
+                        }
+                        // Push chosen effects to the front of the queue
                         if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
                             for effect in effects.into_iter().rev() {
                                 effect_queue.push_front((effect, target));
@@ -1163,8 +1169,34 @@ impl GameState {
                 self.push_screen(Screen::ChoiceSelect {
                     choices,
                     target_index,
+                    energy_costs: vec![],
                 });
                 return EffectResult::Paused;
+            }
+            Effect::XCost { per_energy, bonus } => {
+                if let Some(Screen::Combat { player_energy, .. }) = self.screen.last() {
+                    let max_energy = *player_energy;
+                    let mut choices = Vec::new();
+                    let mut energy_costs = Vec::new();
+                    for spend in 0..=max_energy {
+                        let reps = spend as i16 + bonus;
+                        let label = format!("Spend {}", spend);
+                        let mut effects = Vec::new();
+                        for _ in 0..reps.max(0) {
+                            for e in per_energy.iter() {
+                                effects.push(e.clone());
+                            }
+                        }
+                        choices.push((label, effects));
+                        energy_costs.push(spend);
+                    }
+                    self.push_screen(Screen::ChoiceSelect {
+                        choices,
+                        target_index,
+                        energy_costs,
+                    });
+                    return EffectResult::Paused;
+                }
             }
             Effect::Custom(_id) => {
                 // Not yet implemented
@@ -1568,7 +1600,8 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8, draw_pile
         let cost = info
             .map(|i| i.effective_cost(hc.card.upgraded))
             .unwrap_or(hc.card.cost);
-        if cost < 0 || cost > energy as i8 {
+        let is_x_cost = cost == -1;
+        if !is_x_cost && (cost < 0 || cost > energy as i8) {
             continue;
         }
         // Check play condition
