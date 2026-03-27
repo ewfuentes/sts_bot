@@ -1432,6 +1432,132 @@ fn fiend_fire_empty_hand_deals_no_damage() {
     }
 }
 
+// ── ConditionalOnDieRoll ──
+
+#[test]
+fn spot_weakness_gains_strength_on_low_roll() {
+    let hand = vec![make_hand_card("BGSpot Weakness", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 2,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGSpot Weakness", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn spot_weakness_no_strength_on_high_roll() {
+    let hand = vec![make_hand_card("BGSpot Weakness", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 5,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGSpot Weakness", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(player_powers.iter().find(|p| p.id == "Strength").is_none());
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn spot_weakness_upgraded_succeeds_on_four() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGSpot Weakness".to_string(),
+            name: "BGSpot Weakness".to_string(),
+            cost: 1,
+            card_type: "SKILL".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![upgraded.clone()];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 4,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: None,
+        target_name: None,
+    });
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── StrengthIfTargetDead ──
 
 #[test]

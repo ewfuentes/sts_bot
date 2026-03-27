@@ -43,6 +43,9 @@ pub enum Screen {
         player_powers: Vec<Power>,
         #[serde(default)]
         turn: u16,
+        /// The die roll for this turn (1-6). None if not yet rolled.
+        #[serde(default)]
+        die_roll: Option<u8>,
         /// Queue of effects waiting to execute. Each entry is (effect, target_index).
         /// Target is Some for single-target effects, None for AoE/self/untargeted.
         #[serde(skip)]
@@ -126,6 +129,7 @@ impl Screen {
             player_energy: 0,
             player_powers: vec![],
             turn: 0,
+            die_roll: None,
             effect_queue: VecDeque::new(),
         }
     }
