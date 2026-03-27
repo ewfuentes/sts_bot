@@ -992,6 +992,16 @@ impl GameState {
                     }
                 }
             }
+            Effect::StrengthIfTargetDead(amount) => {
+                if let Some(idx) = target_index {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, player_powers, .. }) = self.screen.last_mut() {
+                        if idx < monsters.len() && monsters[idx].is_gone {
+                            apply_power(player_powers, "Strength", *amount as i32);
+                        }
+                    }
+                }
+            }
             Effect::Block(amount) => {
                 if let Some(Screen::Combat { player_block, .. }) = self.screen.last_mut() {
                     *player_block += *amount as u16;
