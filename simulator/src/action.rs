@@ -88,6 +88,11 @@ pub enum Action {
         card: Card,
         choice_index: u8,
     },
+    PickTarget {
+        card: Card,
+        target_index: u8,
+        target_name: String,
+    },
     PickCustomScreenOption {
         label: String,
         choice_index: u8,
@@ -132,6 +137,7 @@ impl Action {
             Action::PickChoice { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickDiscard { choice_index, .. } => format!("choose {}", choice_index),
             Action::PickExhaust { choice_index, .. } => format!("choose {}", choice_index),
+            Action::PickTarget { target_index, .. } => format!("choose {}", target_index),
             Action::PickCustomScreenOption { choice_index, .. } => format!("choose {}", choice_index),
             Action::PlayCard { hand_index, target_index, .. } => match target_index {
                 Some(t) => format!("play {} {}", hand_index + 1, t),

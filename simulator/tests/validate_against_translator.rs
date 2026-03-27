@@ -56,6 +56,7 @@ fn action_type(action: &Action) -> &str {
         Action::PickChoice { .. } => "pick_choice",
         Action::PickDiscard { .. } => "pick_discard",
         Action::PickExhaust { .. } => "pick_exhaust",
+        Action::PickTarget { .. } => "pick_target",
         Action::PickCustomScreenOption { .. } => "pick_custom_screen_option",
         Action::PlayCard { .. } => "play_card",
         Action::EndTurn => "end_turn",
