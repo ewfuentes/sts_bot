@@ -848,6 +848,81 @@ fn limit_break_no_strength_does_nothing() {
 }
 
 #[test]
+fn limit_break_capped_at_max_strength() {
+    let hand = vec![make_hand_card("BGLimit Break", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [{"id": "Strength", "amount": 5}],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGLimit Break", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 8); // 5 * 2 = 10, capped at 8
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn strength_cap_via_apply_power() {
+    // Stack Inflame (Strength +1) past the cap
+    let hand = vec![
+        make_hand_card("BGInflame", 2, "POWER"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [{"id": "Strength", "amount": 8}],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGInflame", 2, "POWER", 0, None));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 8); // still capped
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
 fn warcry_draws_then_puts_on_top() {
     let hand = vec![make_hand_card("BGWarcry", 0, "SKILL")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
@@ -894,6 +969,267 @@ fn warcry_draws_then_puts_on_top() {
         assert_eq!(draw_pile.len(), 2); // 3 - 2 drawn + 1 put back
         assert_eq!(exhaust_pile.len(), 1); // Warcry exhausted
         assert_eq!(exhaust_pile[0].id, "BGWarcry");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+// ── GainTemporaryStrength / Strength cap ──
+
+#[test]
+fn battle_trance_draws_and_applies_no_draw() {
+    let hand = vec![make_hand_card("BGBattle Trance", 0, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGDefend_R", 1, "SKILL"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGBattle Trance", 0, "SKILL", 0, None));
+
+    if let Screen::Combat { hand, player_powers, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 3); // drew 3
+        let no_draw = player_powers.iter().find(|p| p.id == "NoDrawPower");
+        assert!(no_draw.is_some(), "Should have NoDrawPower");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_tap_applies_power() {
+    let hand = vec![make_hand_card("BGDouble Tap", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGDouble Tap", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 2); // cost 1
+        let power = player_powers.iter().find(|p| p.id == "BGDoubleAttack");
+        assert!(power.is_some(), "Should have BGDoubleAttack power");
+        assert_eq!(power.unwrap().amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn sever_soul_damages_and_exhausts_from_hand() {
+    let hand = vec![
+        make_hand_card("BGSever Soul", 2, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGSever Soul", 2, "ATTACK", 0, Some(0)));
+
+    // Should pause on HandSelect to exhaust 1 card
+    assert!(matches!(state.current_screen(), Screen::HandSelect { .. }),
+        "Expected HandSelect, got {:?}", state.current_screen());
+
+    state.apply(&Action::PickHandCard {
+        card: make_card("BGDefend_R", 1, "SKILL"),
+        choice_index: 1,
+    });
+
+    if let Screen::Combat { monsters, hand, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 17); // 20 - 3
+        assert_eq!(hand.len(), 1); // Strike remains
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(exhaust_pile[0].id, "BGDefend_R");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn sever_soul_upgraded_exhausts_up_to_two() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGSever Soul".to_string(),
+            name: "BGSever Soul".to_string(),
+            cost: 2,
+            card_type: "ATTACK".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![
+        upgraded.clone(),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+        make_hand_card("BGBash", 2, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Jaw Worm".to_string()),
+    });
+
+    // Should pause on HandSelect (min 1, max 2)
+    if let Screen::HandSelect { min_cards, max_cards, .. } = state.current_screen() {
+        assert_eq!(*min_cards, 1);
+        assert_eq!(*max_cards, 2);
+    } else {
+        panic!("Expected HandSelect, got {:?}", state.current_screen());
+    }
+
+    // Pick first card
+    state.apply(&Action::PickHandCard {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        choice_index: 0,
+    });
+    // Pick second card
+    state.apply(&Action::PickHandCard {
+        card: make_card("BGDefend_R", 1, "SKILL"),
+        choice_index: 0,
+    });
+
+    if let Screen::Combat { monsters, hand, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 16); // 20 - 4 (upgraded damage)
+        assert_eq!(hand.len(), 1); // Bash remains
+        assert_eq!(exhaust_pile.len(), 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn battle_trance_upgraded_draws_four() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGBattle Trance".to_string(),
+            name: "BGBattle Trance".to_string(),
+            cost: 0,
+            card_type: "SKILL".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![upgraded.clone()];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGDefend_R", 1, "SKILL"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: None,
+        target_name: None,
+    });
+
+    if let Screen::Combat { hand, draw_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 4); // drew 4
+        assert_eq!(draw_pile.len(), 0);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn flex_gains_temporary_strength_and_exhausts() {
+    let hand = vec![make_hand_card("BGFlex", 0, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFlex", 0, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, exhaust_pile, player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 3); // cost 0
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 1);
+        let lose = player_powers.iter().find(|p| p.id == "LoseStrength").unwrap();
+        assert_eq!(lose.amount, 1);
+        assert_eq!(exhaust_pile.len(), 1); // Flex exhausts
+        assert_eq!(exhaust_pile[0].id, "BGFlex");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn flex_capped_at_max_strength() {
+    let hand = vec![make_hand_card("BGFlex", 0, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [{"id": "Strength", "amount": 8}],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGFlex", 0, "SKILL", 0, None));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 8); // still capped
+        assert!(player_powers.iter().find(|p| p.id == "LoseStrength").is_none(),
+            "Should not have LoseStrength when at cap");
     } else {
         panic!("Expected Combat screen");
     }

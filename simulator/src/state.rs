@@ -996,10 +996,25 @@ impl GameState {
                     *player_block *= 2;
                 }
             }
+            Effect::GainTemporaryStrength(amount) => {
+                if let Some(Screen::Combat { player_powers, .. }) = self.screen.last_mut() {
+                    let before = player_powers.iter().find(|p| p.id == "Strength")
+                        .map(|p| p.amount).unwrap_or(0);
+                    apply_power(player_powers, "Strength", *amount as i32);
+                    let after = player_powers.iter().find(|p| p.id == "Strength")
+                        .map(|p| p.amount).unwrap_or(0);
+                    let actual_gain = after - before;
+                    if actual_gain > 0 {
+                        apply_power(player_powers, "LoseStrength", actual_gain);
+                    }
+                }
+            }
             Effect::DoubleStrength => {
                 if let Some(Screen::Combat { player_powers, .. }) = self.screen.last_mut() {
-                    if let Some(strength) = player_powers.iter_mut().find(|p| p.id == "Strength") {
-                        strength.amount *= 2;
+                    let current = player_powers.iter().find(|p| p.id == "Strength")
+                        .map(|p| p.amount).unwrap_or(0);
+                    if current > 0 {
+                        apply_power(player_powers, "Strength", current);
                     }
                 }
             }
@@ -1613,14 +1628,22 @@ fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) {
     }
 }
 
+/// Maximum value for the Strength power.
+const MAX_STRENGTH: i32 = 8;
+
 /// Add or stack a power on a creature's power list.
+/// Strength is capped at MAX_STRENGTH.
 fn apply_power(powers: &mut Vec<crate::types::Power>, power_id: &str, amount: i32) {
     if let Some(existing) = powers.iter_mut().find(|p| p.id == power_id) {
         existing.amount += amount;
+        if power_id == "Strength" {
+            existing.amount = existing.amount.min(MAX_STRENGTH);
+        }
     } else {
+        let capped = if power_id == "Strength" { amount.min(MAX_STRENGTH) } else { amount };
         powers.push(crate::types::Power {
             id: power_id.to_string(),
-            amount,
+            amount: capped,
         });
     }
 }

@@ -268,6 +268,9 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
                 ("Spear", &[Damage(2), Block(1)]),
                 ("Shield", &[Damage(1), Block(2)]),
             ])]),
+        CardInfo::new("BGSever Soul", 2, CardType::Attack, CardTarget::Enemy,
+            &[Damage(3), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }])
+            .upgraded_effects(&[Damage(4), SelectFromHand { min: 1, max: 2, action: HandSelectAction::Exhaust }]),
         // ── Verified skills ──
         CardInfo::new("BGWarcry", 0, CardType::Skill, CardTarget::None,
             &[Draw(2), SelectFromHand { min: 1, max: 1, action: HandSelectAction::PutOnTopOfDraw }])
@@ -300,6 +303,13 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("BGBurning Pact", 1, CardType::Skill, CardTarget::None,
             &[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(2)])
             .upgraded_effects(&[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(3)]),
+        CardInfo::new("BGBattle Trance", 0, CardType::Skill, CardTarget::_Self,
+            &[Draw(3), ApplyPower { target: _Self, power_id: "NoDrawPower", amount: 1 }])
+            .upgraded_effects(&[Draw(4), ApplyPower { target: _Self, power_id: "NoDrawPower", amount: 1 }]),
+        CardInfo::new("BGFlex", 0, CardType::Skill, CardTarget::_Self,
+            &[GainTemporaryStrength(1)])
+            .exhaust()
+            .upgraded_exhaust(false),
         CardInfo::new("BGSentinel", 1, CardType::Skill, CardTarget::_Self, &[Block(2)])
             .on_exhaust(&[GainEnergy(2)])
             .upgraded_effects(&[Block(3)])
@@ -333,6 +343,9 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             &[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
             .upgraded_cost(0)
             .upgraded_effects(&[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 2 }]),
+        CardInfo::new("BGDouble Tap", 1, CardType::Skill, CardTarget::_Self,
+            &[ApplyPower { target: _Self, power_id: "BGDoubleAttack", amount: 1 }])
+            .upgraded_cost(0),
         // ── Verified powers (just ApplyPower, no side effects) ──
         CardInfo::new("BGInflame", 2, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
