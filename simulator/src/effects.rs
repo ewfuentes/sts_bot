@@ -14,6 +14,8 @@ pub enum Effect {
     DamageAll(i16),
     /// Deal damage to a single target equal to a value derived from game state.
     DamageBasedOn(DamageSource),
+    /// If the target monster is dead, gain Strength (capped).
+    StrengthIfTargetDead(i16),
     Block(i16),
     ApplyPower {
         target: EffectTarget,

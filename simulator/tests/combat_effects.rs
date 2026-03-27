@@ -1432,6 +1432,78 @@ fn fiend_fire_empty_hand_deals_no_damage() {
     }
 }
 
+// ── StrengthIfTargetDead ──
+
+#[test]
+fn feed_gains_strength_on_kill() {
+    let hand = vec![make_hand_card("BGFeed", 1, "ATTACK")];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 3, 0),
+        make_monster("BGGreenLouse", "Louse", 5, 0),
+    ];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFeed", 1, "ATTACK", 0, Some(0)));
+
+    // Jaw Worm had 3 HP, Feed deals 3 → dead → gain strength
+    if let Screen::Combat { monsters, player_powers, exhaust_pile, .. } = state.current_screen() {
+        assert!(monsters[0].is_gone);
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 1);
+        assert_eq!(exhaust_pile.len(), 1); // Feed exhausts
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn feed_no_strength_if_target_survives() {
+    let hand = vec![make_hand_card("BGFeed", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFeed", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_powers, .. } = state.current_screen() {
+        assert!(!monsters[0].is_gone);
+        assert_eq!(monsters[0].hp, 7); // 10 - 3
+        assert!(player_powers.iter().find(|p| p.id == "Strength").is_none());
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn feed_upgraded_gains_two_strength_on_kill() {
+    let upgraded = HandCard {
+        card: Card {
+            id: "BGFeed".to_string(),
+            name: "BGFeed".to_string(),
+            cost: 1,
+            card_type: "ATTACK".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![upgraded.clone()];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 2, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&Action::PlayCard {
+        card: upgraded.card,
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Jaw Worm".to_string()),
+    });
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 2);
+    } else {
+        // Monster died, might transition to rewards
+        assert!(matches!(state.current_screen(), Screen::CombatRewards { .. }));
+    }
+}
+
 // ── XCost ──
 
 #[test]

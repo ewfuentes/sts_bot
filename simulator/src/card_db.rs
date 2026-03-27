@@ -292,6 +292,10 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             &[ForEachInHand { filter: HandFilter::AllCards, per_card: &[Damage(1)], exhaust_matched: true }])
             .exhaust()
             .upgraded_effects(&[ForEachInHand { filter: HandFilter::AllCards, per_card: &[Damage(2)], exhaust_matched: true }]),
+        CardInfo::new("BGFeed", 1, CardType::Attack, CardTarget::Enemy,
+            &[Damage(3), StrengthIfTargetDead(1)])
+            .exhaust()
+            .upgraded_effects(&[Damage(3), StrengthIfTargetDead(2)]),
         CardInfo::new("BGWhirlwind", -1, CardType::Attack, CardTarget::AllEnemy,
             &[XCost { per_energy: &[DamageAll(1)], bonus: 0 }])
             .upgraded_effects(&[XCost { per_energy: &[DamageAll(1)], bonus: 1 }]),
