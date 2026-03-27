@@ -90,6 +90,9 @@ pub enum Screen {
         choices: Vec<(String, Vec<Effect>)>,
         #[serde(skip)]
         target_index: Option<u8>,
+        /// Energy to deduct for each choice (empty = no energy cost).
+        #[serde(skip)]
+        energy_costs: Vec<u8>,
     },
     CustomScreen {
         screen_enum: String,
