@@ -478,6 +478,163 @@ fn immolate_damages_all_and_adds_two_dazed() {
     }
 }
 
+// ── DamageBasedOn ──
+
+#[test]
+fn body_slam_deals_damage_equal_to_block() {
+    let hand = vec![make_hand_card("BGBody Slam", 1, "ATTACK", true, true)];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 4);
+
+    state.apply(&play_action("BGBody Slam", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_block, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 4); // 8 - 4 block = 4
+        assert_eq!(*player_block, 4); // block not consumed
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn body_slam_zero_block_deals_no_damage() {
+    let hand = vec![make_hand_card("BGBody Slam", 1, "ATTACK", true, true)];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGBody Slam", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 8); // no damage
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn rampage_deals_damage_equal_to_exhaust_pile_size() {
+    let hand = vec![make_hand_card("BGRampage", 1, "ATTACK", true, true)];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGDefend_R", 1, "SKILL"),
+            ],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGRampage", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 17); // 20 - 3 (exhaust pile had 3 cards)
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn rampage_empty_exhaust_deals_no_damage() {
+    let hand = vec![make_hand_card("BGRampage", 1, "ATTACK", true, true)];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGRampage", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 8); // no damage
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn rampage_upgraded_exhausts_then_deals_damage() {
+    let upgraded_rampage = HandCard {
+        card: Card {
+            id: "BGRampage".to_string(),
+            name: "BGRampage".to_string(),
+            cost: 1,
+            card_type: "ATTACK".to_string(),
+            upgraded: true,
+        },
+        is_playable: true,
+        has_target: true,
+    };
+    let hand = vec![
+        upgraded_rampage.clone(),
+        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
+        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGDefend_R", 1, "SKILL"),
+            ],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::PlayCard {
+        card: upgraded_rampage.card,
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Jaw Worm".to_string()),
+    });
+
+    // Should pause for hand select (exhaust a card)
+    assert!(matches!(state.current_screen(), Screen::HandSelect { .. }));
+
+    state.apply(&Action::PickHandCard {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        choice_index: 0,
+    });
+
+    // Exhaust pile: 2 original + 1 exhausted = 3, so damage = 3
+    if let Screen::Combat { monsters, exhaust_pile, hand, .. } = state.current_screen() {
+        assert_eq!(exhaust_pile.len(), 3);
+        assert_eq!(monsters[0].hp, 17); // 20 - 3
+        assert_eq!(hand.len(), 1); // Defend remains
+        assert_eq!(hand[0].card.id, "BGDefend_R");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ExhaustFromHand (effect queue + sub-decision) ──
 
 #[test]
