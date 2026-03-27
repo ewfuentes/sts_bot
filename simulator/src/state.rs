@@ -238,6 +238,12 @@ impl GameState {
         }
     }
 
+    /// Find the Combat screen in the stack (it may not be the top screen
+    /// if sub-decision screens like HandSelect or DiscardSelect are above it).
+    fn find_combat_mut(&mut self) -> Option<&mut Screen> {
+        self.screen.iter_mut().rev().find(|s| matches!(s, Screen::Combat { .. }))
+    }
+
     pub fn push_screen(&mut self, s: Screen) {
         self.screen.push(s);
     }
@@ -868,12 +874,12 @@ impl GameState {
                         self.pop_screen();
                         // Deduct energy if this choice has an energy cost (XCost)
                         if let Some(cost) = energy_cost {
-                            if let Some(Screen::Combat { player_energy, .. }) = self.screen.last_mut() {
+                            if let Some(Screen::Combat { player_energy, .. }) = self.find_combat_mut() {
                                 *player_energy = player_energy.saturating_sub(cost);
                             }
                         }
                         // Push chosen effects to the front of the queue
-                        if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
+                        if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
                             for effect in effects.into_iter().rev() {
                                 effect_queue.push_front((effect, target));
                             }
@@ -888,7 +894,7 @@ impl GameState {
                     if idx < cards.len() {
                         let (discard_idx, _) = cards[idx];
                         self.pop_screen();
-                        if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.screen.last_mut() {
+                        if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.find_combat_mut() {
                             let discard_idx = discard_idx as usize;
                             if discard_idx < discard_pile.len() {
                                 let card = discard_pile.remove(discard_idx);
@@ -947,7 +953,7 @@ impl GameState {
     fn drain_effect_queue(&mut self) {
         loop {
             // Pop next (effect, target) pair from queue
-            let entry = if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
+            let entry = if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
                 effect_queue.pop_front()
             } else {
                 None
@@ -963,7 +969,7 @@ impl GameState {
         }
 
         // Finalize
-        if let Some(Screen::Combat { monsters, .. }) = self.screen.last_mut() {
+        if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
             if monsters.iter().all(|m| m.is_gone) {
                 self.finish_combat();
             }
@@ -977,7 +983,7 @@ impl GameState {
             Effect::Damage(amount) => {
                 if let Some(idx) = target_index {
                     let idx = idx as usize;
-                    if let Some(Screen::Combat { monsters, .. }) = self.screen.last_mut() {
+                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             apply_damage_to_monster(&mut monsters[idx], *amount as u16);
                         }
@@ -985,7 +991,7 @@ impl GameState {
                 }
             }
             Effect::DamageAll(amount) => {
-                if let Some(Screen::Combat { monsters, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                     for monster in monsters.iter_mut() {
                         if !monster.is_gone {
                             apply_damage_to_monster(monster, *amount as u16);
@@ -996,7 +1002,7 @@ impl GameState {
             Effect::DamageBasedOn(source) => {
                 if let Some(idx) = target_index {
                     let idx = idx as usize;
-                    if let Some(Screen::Combat { monsters, player_block, exhaust_pile, .. }) = self.screen.last_mut() {
+                    if let Some(Screen::Combat { monsters, player_block, exhaust_pile, .. }) = self.find_combat_mut() {
                         let amount = match source {
                             DamageSource::ExhaustPileSize => exhaust_pile.len() as u16,
                             DamageSource::CurrentBlock => *player_block,
@@ -1011,7 +1017,7 @@ impl GameState {
             Effect::StrengthIfTargetDead(amount) => {
                 if let Some(idx) = target_index {
                     let idx = idx as usize;
-                    if let Some(Screen::Combat { monsters, player_powers, .. }) = self.screen.last_mut() {
+                    if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && monsters[idx].is_gone {
                             apply_power(player_powers, "Strength", *amount as i32);
                         }
@@ -1019,17 +1025,17 @@ impl GameState {
                 }
             }
             Effect::Block(amount) => {
-                if let Some(Screen::Combat { player_block, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
                     *player_block += *amount as u16;
                 }
             }
             Effect::DoubleBlock => {
-                if let Some(Screen::Combat { player_block, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
                     *player_block *= 2;
                 }
             }
             Effect::GainTemporaryStrength(amount) => {
-                if let Some(Screen::Combat { player_powers, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { player_powers, .. }) = self.find_combat_mut() {
                     let before = player_powers.iter().find(|p| p.id == "Strength")
                         .map(|p| p.amount).unwrap_or(0);
                     apply_power(player_powers, "Strength", *amount as i32);
@@ -1042,7 +1048,7 @@ impl GameState {
                 }
             }
             Effect::DoubleStrength => {
-                if let Some(Screen::Combat { player_powers, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { player_powers, .. }) = self.find_combat_mut() {
                     let current = player_powers.iter().find(|p| p.id == "Strength")
                         .map(|p| p.amount).unwrap_or(0);
                     if current > 0 {
@@ -1051,7 +1057,7 @@ impl GameState {
                 }
             }
             Effect::ApplyPower { target, power_id, amount } => {
-                if let Some(Screen::Combat { player_powers, monsters, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { player_powers, monsters, .. }) = self.find_combat_mut() {
                     match target {
                         EffectTarget::TargetEnemy => {
                             if let Some(idx) = target_index {
@@ -1075,7 +1081,7 @@ impl GameState {
                 }
             }
             Effect::Draw(count) => {
-                if let Some(Screen::Combat { hand, draw_pile, discard_pile, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { hand, draw_pile, discard_pile, .. }) = self.find_combat_mut() {
                     for _ in 0..*count {
                         if draw_pile.is_empty() && !discard_pile.is_empty() {
                             draw_pile.append(discard_pile);
@@ -1088,7 +1094,7 @@ impl GameState {
                 }
             }
             Effect::GainEnergy(amount) => {
-                if let Some(Screen::Combat { player_energy, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { player_energy, .. }) = self.find_combat_mut() {
                     *player_energy += amount;
                 }
             }
@@ -1096,7 +1102,7 @@ impl GameState {
                 self.hp = self.hp.saturating_sub(*amount);
             }
             Effect::AddCardToPile { card_id, pile, count } => {
-                if let Some(Screen::Combat { draw_pile, discard_pile, exhaust_pile, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { draw_pile, discard_pile, exhaust_pile, .. }) = self.find_combat_mut() {
                     let new_card = Card {
                         id: card_id.to_string(),
                         name: card_id.to_string(),
@@ -1124,7 +1130,7 @@ impl GameState {
                 }
             }
             Effect::SelectFromHand { min, max, action } => {
-                if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
                     if hand.len() <= *min as usize {
                         // Auto-resolve: not enough cards for a real choice
                         let selected: Vec<HandCard> = hand.drain(..).collect();
@@ -1150,7 +1156,7 @@ impl GameState {
                 }
             }
             Effect::SelectFromDiscardToDrawTop => {
-                if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.find_combat_mut() {
                     if discard_pile.is_empty() {
                         return EffectResult::Continue;
                     }
@@ -1167,7 +1173,7 @@ impl GameState {
                 }
             }
             Effect::ForEachInHand { filter, per_card, exhaust_matched } => {
-                if let Some(Screen::Combat { hand, exhaust_pile, effect_queue, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { hand, exhaust_pile, effect_queue, .. }) = self.find_combat_mut() {
                     let matches_filter = |card: &Card| {
                         let card_type = card_db::lookup(&card.id)
                             .map(|i| i.card_type)
@@ -1242,7 +1248,7 @@ impl GameState {
                 }
             }
             Effect::ConditionalOnDieRoll { min, max, effects } => {
-                if let Some(Screen::Combat { die_roll, effect_queue, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { die_roll, effect_queue, .. }) = self.find_combat_mut() {
                     let roll = die_roll.expect("ConditionalOnDieRoll used before die was rolled");
                     if roll >= *min && roll <= *max {
                         for effect in effects.iter().rev() {
@@ -1252,7 +1258,7 @@ impl GameState {
                 }
             }
             Effect::DisposeCard { card, exhaust, rebound } => {
-                if let Some(Screen::Combat { discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
                     if *exhaust {
                         exhaust_card(card.clone(), exhaust_pile, effect_queue);
                     } else if *rebound {
@@ -1268,7 +1274,7 @@ impl GameState {
         }
 
         // Check for combat end after each effect
-        if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.screen.last_mut() {
+        if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
             if monsters.iter().all(|m| m.is_gone) {
                 effect_queue.clear();
                 return EffectResult::CombatOver;
@@ -1297,7 +1303,7 @@ impl GameState {
         picked.sort();
         picked.reverse();
 
-        if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.screen.last_mut() {
+        if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
             for hi in picked {
                 let hi = hi as usize;
                 if hi < hand.len() {
