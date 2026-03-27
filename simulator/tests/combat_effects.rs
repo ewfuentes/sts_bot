@@ -899,6 +899,133 @@ fn warcry_draws_then_puts_on_top() {
     }
 }
 
+// ── ForEachInHand ──
+
+#[test]
+fn rage_blocks_per_attack_in_hand() {
+    let hand = vec![
+        make_hand_card("BGRage", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGRage", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, hand, .. } = state.current_screen() {
+        assert_eq!(*player_block, 2); // 2 attacks in hand
+        assert_eq!(hand.len(), 3); // cards not exhausted
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn rage_zero_attacks_no_block() {
+    let hand = vec![
+        make_hand_card("BGRage", 1, "SKILL"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGRage", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 0);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn second_wind_blocks_and_exhausts_non_attacks() {
+    let hand = vec![
+        make_hand_card("BGSecond Wind", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGSecond Wind", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, hand, exhaust_pile, .. } = state.current_screen() {
+        // 2 non-attack cards (the 2 Defends) — Second Wind itself was already played
+        assert_eq!(*player_block, 2); // 1 block per non-attack
+        assert_eq!(exhaust_pile.len(), 2); // 2 Defends exhausted
+        assert_eq!(hand.len(), 1); // only Strike remains
+        assert_eq!(hand[0].card.id, "BGStrike_R");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn second_wind_no_non_attacks_does_nothing() {
+    let hand = vec![
+        make_hand_card("BGSecond Wind", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGSecond Wind", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, hand, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(*player_block, 0);
+        assert_eq!(hand.len(), 1);
+        assert_eq!(exhaust_pile.len(), 0);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn fiend_fire_exhausts_hand_and_damages_per_card() {
+    let hand = vec![
+        make_hand_card("BGFiend Fire", 2, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+        make_hand_card("BGBash", 2, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFiend Fire", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, hand, exhaust_pile, .. } = state.current_screen() {
+        // 3 cards were in hand when ForEachInHand ran (Fiend Fire already played)
+        assert_eq!(monsters[0].hp, 17); // 20 - 3 (1 damage per card)
+        assert!(hand.is_empty()); // all exhausted
+        // exhaust pile: 3 from hand + Fiend Fire itself (it has exhaust flag)
+        assert_eq!(exhaust_pile.len(), 4);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn fiend_fire_empty_hand_deals_no_damage() {
+    let hand = vec![
+        make_hand_card("BGFiend Fire", 2, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGFiend Fire", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 8); // no damage
+        assert_eq!(exhaust_pile.len(), 1); // just Fiend Fire itself
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ChooseOne ──
 
 #[test]

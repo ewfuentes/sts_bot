@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use crate::effects::{DamageSource, Effect, EffectTarget, HandSelectAction, Pile};
+use crate::effects::{DamageSource, Effect, EffectTarget, HandFilter, HandSelectAction, Pile};
 
 /// How a card targets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,6 +255,16 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("BGLimit Break", 1, CardType::Skill, CardTarget::_Self, &[DoubleStrength])
             .exhaust()
             .upgraded_exhaust(false),
+        CardInfo::new("BGRage", 1, CardType::Skill, CardTarget::_Self,
+            &[ForEachInHand { filter: HandFilter::Attacks, per_card: &[Block(1)], exhaust_matched: false }])
+            .upgraded_cost(0),
+        CardInfo::new("BGSecond Wind", 1, CardType::Skill, CardTarget::_Self,
+            &[ForEachInHand { filter: HandFilter::NonAttacks, per_card: &[Block(1)], exhaust_matched: true }])
+            .upgraded_effects(&[ForEachInHand { filter: HandFilter::NonAttacks, per_card: &[Block(2)], exhaust_matched: true }]),
+        CardInfo::new("BGFiend Fire", 2, CardType::Attack, CardTarget::Enemy,
+            &[ForEachInHand { filter: HandFilter::AllCards, per_card: &[Damage(1)], exhaust_matched: true }])
+            .exhaust()
+            .upgraded_effects(&[ForEachInHand { filter: HandFilter::AllCards, per_card: &[Damage(2)], exhaust_matched: true }]),
         CardInfo::new("BGPower Through", 1, CardType::Skill, CardTarget::_Self,
             &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])
             .upgraded_effects(&[Block(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),

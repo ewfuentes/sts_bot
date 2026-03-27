@@ -2,7 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
 use crate::card_db;
-use crate::effects::{DamageSource, Effect, EffectTarget, HandSelectAction, Pile};
+use crate::effects::{DamageSource, Effect, EffectTarget, HandFilter, HandSelectAction, Pile};
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
@@ -1100,6 +1100,44 @@ impl GameState {
                         action,
                     });
                     return EffectResult::Paused;
+                }
+            }
+            Effect::ForEachInHand { filter, per_card, exhaust_matched } => {
+                if let Some(Screen::Combat { hand, exhaust_pile, effect_queue, .. }) = self.screen.last_mut() {
+                    let matches_filter = |card: &Card| {
+                        let card_type = card_db::lookup(&card.id)
+                            .map(|i| i.card_type)
+                            .unwrap_or(card_db::CardType::Skill);
+                        match filter {
+                            HandFilter::AllCards => true,
+                            HandFilter::Attacks => card_type == card_db::CardType::Attack,
+                            HandFilter::NonAttacks => card_type != card_db::CardType::Attack,
+                        }
+                    };
+
+                    // Count matching cards and optionally exhaust them
+                    let mut count = 0usize;
+                    if *exhaust_matched {
+                        let mut kept = Vec::new();
+                        for hc in hand.drain(..) {
+                            if matches_filter(&hc.card) {
+                                count += 1;
+                                exhaust_pile.push(hc.card);
+                            } else {
+                                kept.push(hc);
+                            }
+                        }
+                        *hand = kept;
+                    } else {
+                        count = hand.iter().filter(|hc| matches_filter(&hc.card)).count();
+                    }
+
+                    // Push per_card effects N times to front of queue (in order)
+                    let total_effects = count * per_card.len();
+                    for i in (0..total_effects).rev() {
+                        let effect_idx = i % per_card.len();
+                        effect_queue.push_front((per_card[effect_idx].clone(), target_index));
+                    }
                 }
             }
             Effect::ChooseOne(options) => {
