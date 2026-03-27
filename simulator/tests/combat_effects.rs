@@ -701,6 +701,67 @@ fn rampage_upgraded_exhausts_then_deals_damage() {
     }
 }
 
+// ── Rebound ──
+
+#[test]
+fn anger_deals_damage_and_rebounds_to_draw() {
+    let hand = vec![make_hand_card("BGAnger", 0, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGAnger", 0, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, draw_pile, discard_pile, player_energy, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 7); // 8 - 1
+        assert_eq!(*player_energy, 3); // cost 0
+        assert!(discard_pile.is_empty(), "Anger should not go to discard");
+        assert_eq!(draw_pile.len(), 1);
+        assert_eq!(draw_pile[0].id, "BGAnger");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn anger_rebound_goes_on_top_of_draw() {
+    let hand = vec![make_hand_card("BGAnger", 0, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGDefend_R", 1, "SKILL"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGAnger", 0, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { draw_pile, .. } = state.current_screen() {
+        assert_eq!(draw_pile.len(), 3); // 2 existing + 1 rebounded
+        // Anger should be on top (last element = top of draw pile)
+        assert_eq!(draw_pile.last().unwrap().id, "BGAnger");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── DoubleBlock / DoubleStrength ──
 
 #[test]

@@ -741,7 +741,7 @@ impl GameState {
                 let target = *target_index;
 
                 if let Some(Screen::Combat {
-                    hand, discard_pile, exhaust_pile,
+                    hand, draw_pile, discard_pile, exhaust_pile,
                     player_energy, effect_queue, ..
                 }) = self.screen.last_mut()
                 {
@@ -775,10 +775,15 @@ impl GameState {
                     let does_exhaust = info
                         .map(|i| i.does_exhaust(card.upgraded))
                         .unwrap_or(false);
+                    let does_rebound = info
+                        .map(|i| i.rebound)
+                        .unwrap_or(false);
                     if is_power {
                         // Powers are consumed
                     } else if does_exhaust {
                         exhaust_pile.push(card);
+                    } else if does_rebound {
+                        draw_pile.push(card);
                     } else {
                         discard_pile.push(card);
                     }
