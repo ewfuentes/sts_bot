@@ -54,6 +54,7 @@ pub struct CardInfo {
     pub effects: &'static [Effect],
     pub exhaust: bool,
     pub ethereal: bool,
+    pub rebound: bool,
     pub play_condition: Option<PlayCondition>,
     // Upgrade overrides (None = same as base)
     pub upgraded_cost: Option<i8>,
@@ -79,6 +80,7 @@ impl CardInfo {
             effects,
             exhaust: false,
             ethereal: false,
+            rebound: false,
             play_condition: None,
             upgraded_cost: None,
             upgraded_effects: None,
@@ -94,6 +96,11 @@ impl CardInfo {
 
     const fn ethereal(mut self) -> Self {
         self.ethereal = true;
+        self
+    }
+
+    const fn rebound(mut self) -> Self {
+        self.rebound = true;
         self
     }
 
@@ -226,6 +233,9 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
                 SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust },
                 DamageBasedOn(DamageSource::ExhaustPileSize),
             ]),
+        CardInfo::new("BGAnger", 0, CardType::Attack, CardTarget::Enemy, &[Damage(1)])
+            .rebound()
+            .upgraded_effects(&[Damage(2)]),
         CardInfo::new("BGClash", 0, CardType::Attack, CardTarget::Enemy, &[Damage(3)])
             .play_condition(PlayCondition::HandAllAttacks)
             .upgraded_effects(&[Damage(4)]),
