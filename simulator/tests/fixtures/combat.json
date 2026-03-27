@@ -36,11 +36,11 @@
       }
     ],
     "hand": [
-      {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false, "is_playable": true, "has_target": true},
-      {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false, "is_playable": true, "has_target": true},
-      {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false, "is_playable": true, "has_target": false},
-      {"id": "BGBash", "name": "Bash", "cost": 2, "type": "ATTACK", "upgraded": false, "is_playable": true, "has_target": true},
-      {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false, "is_playable": true, "has_target": false}
+      {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+      {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+      {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
+      {"id": "BGBash", "name": "Bash", "cost": 2, "type": "ATTACK", "upgraded": false},
+      {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false}
     ],
     "draw_pile": [
       {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},

@@ -196,8 +196,4 @@ pub struct ShopPotion {
 pub struct HandCard {
     #[serde(flatten)]
     pub card: Card,
-    #[serde(default)]
-    pub is_playable: bool,
-    #[serde(default)]
-    pub has_target: bool,
 }

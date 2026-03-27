@@ -33,10 +33,7 @@ fn deserialize_combat_state() {
         assert_eq!(monsters[0].damage, Some(3));
 
         assert_eq!(hand.len(), 5);
-        assert!(hand[0].is_playable);
-        assert!(hand[0].has_target);
         assert_eq!(hand[0].card.id, "BGStrike_R");
-        assert!(!hand[2].has_target); // Defend
 
         assert_eq!(draw_pile.len(), 2);
         assert!(discard_pile.is_empty());

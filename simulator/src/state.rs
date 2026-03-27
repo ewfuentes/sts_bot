@@ -824,21 +824,7 @@ impl GameState {
                             draw_pile.reverse();
                         }
                         if let Some(card) = draw_pile.pop() {
-                            let info = card_db::lookup(&card.id);
-                            let is_playable = info
-                                .map(|i| {
-                                    let c = i.effective_cost(card.upgraded);
-                                    c >= 0 && c <= 3 // energy will be 3 after refill
-                                })
-                                .unwrap_or(true);
-                            let has_target = info
-                                .map(|i| i.target.has_target())
-                                .unwrap_or(false);
-                            hand.push(HandCard {
-                                card,
-                                is_playable,
-                                has_target,
-                            });
+                            hand.push(HandCard { card });
                         }
                     }
 
@@ -933,8 +919,7 @@ impl GameState {
         }
 
         // Finalize
-        if let Some(Screen::Combat { hand, player_energy, monsters, .. }) = self.screen.last_mut() {
-            recalculate_playability(hand, *player_energy);
+        if let Some(Screen::Combat { monsters, .. }) = self.screen.last_mut() {
             if monsters.iter().all(|m| m.is_gone) {
                 self.finish_combat();
             }
@@ -1008,23 +993,14 @@ impl GameState {
                 }
             }
             Effect::Draw(count) => {
-                if let Some(Screen::Combat { hand, draw_pile, discard_pile, player_energy, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { hand, draw_pile, discard_pile, .. }) = self.screen.last_mut() {
                     for _ in 0..*count {
                         if draw_pile.is_empty() && !discard_pile.is_empty() {
                             draw_pile.append(discard_pile);
                             draw_pile.reverse();
                         }
                         if let Some(card) = draw_pile.pop() {
-                            let info = card_db::lookup(&card.id);
-                            let energy = *player_energy;
-                            let is_playable = info
-                                .map(|i| {
-                                    let c = i.effective_cost(card.upgraded);
-                                    c >= 0 && c <= energy as i8
-                                })
-                                .unwrap_or(true);
-                            let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
-                            hand.push(HandCard { card, is_playable, has_target });
+                            hand.push(HandCard { card });
                         }
                     }
                 }
@@ -1281,9 +1257,9 @@ impl GameState {
                 shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
             }
             Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
-            Screen::Combat { hand, monsters, effect_queue, .. } => {
+            Screen::Combat { hand, monsters, effect_queue, player_energy, .. } => {
                 assert!(effect_queue.is_empty(), "Effect queue should be empty when generating actions");
-                combat_actions(hand, monsters)
+                combat_actions(hand, monsters, *player_energy)
             }
             Screen::HandSelect { cards, picked_indices, min_cards, max_cards, .. } => {
                 hand_select_actions(cards, picked_indices.len() as u8, *min_cards, *max_cards)
@@ -1469,7 +1445,7 @@ fn grid_actions(cards: &[Card]) -> Vec<Action> {
         .collect()
 }
 
-fn combat_actions(hand: &[HandCard], monsters: &[Monster]) -> Vec<Action> {
+fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8) -> Vec<Action> {
     let mut actions = Vec::new();
     let live_monsters: Vec<(u8, &Monster)> = monsters
         .iter()
@@ -1479,10 +1455,15 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster]) -> Vec<Action> {
         .collect();
 
     for (i, hc) in hand.iter().enumerate() {
-        if !hc.is_playable {
+        let info = card_db::lookup(&hc.card.id);
+        let cost = info
+            .map(|i| i.effective_cost(hc.card.upgraded))
+            .unwrap_or(hc.card.cost);
+        if cost < 0 || cost > energy as i8 {
             continue;
         }
-        if hc.has_target {
+        let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
+        if has_target {
             for &(mi, ref m) in &live_monsters {
                 actions.push(Action::PlayCard {
                     card: hc.card.clone(),
@@ -1534,15 +1515,6 @@ fn apply_power(powers: &mut Vec<crate::types::Power>, power_id: &str, amount: i3
             id: power_id.to_string(),
             amount,
         });
-    }
-}
-
-fn recalculate_playability(hand: &mut [HandCard], energy: u8) {
-    for hc in hand.iter_mut() {
-        let card_cost = card_db::lookup(&hc.card.id)
-            .map(|i| i.effective_cost(hc.card.upgraded))
-            .unwrap_or(hc.card.cost);
-        hc.is_playable = card_cost >= 0 && card_cost <= energy as i8;
     }
 }
 
