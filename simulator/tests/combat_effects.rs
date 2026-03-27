@@ -1432,6 +1432,177 @@ fn fiend_fire_empty_hand_deals_no_damage() {
     }
 }
 
+// ── SelectFromDiscardToDrawTop ──
+
+#[test]
+fn headbutt_damages_and_selects_from_discard() {
+    let hand = vec![make_hand_card("BGHeadbutt", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGDefend_R", 1, "SKILL"),
+            ],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGHeadbutt", 1, "ATTACK", 0, Some(0)));
+
+    // Should pause on DiscardSelect
+    assert!(matches!(state.current_screen(), Screen::DiscardSelect { .. }),
+        "Expected DiscardSelect, got {:?}", state.current_screen());
+
+    let actions = state.available_actions();
+    assert_eq!(actions.len(), 2); // two cards in discard (Headbutt not yet disposed)
+
+    state.apply(&Action::PickDiscard {
+        card: make_card("BGDefend_R", 1, "SKILL"),
+        choice_index: 1,
+    });
+
+    if let Screen::Combat { monsters, draw_pile, discard_pile, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 18); // 20 - 2
+        assert_eq!(draw_pile.len(), 1);
+        assert_eq!(draw_pile[0].id, "BGDefend_R");
+        // Strike remains in discard + Headbutt disposed after effects
+        assert_eq!(discard_pile.len(), 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn headbutt_empty_discard_skips_selection() {
+    let hand = vec![make_hand_card("BGHeadbutt", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    // Empty discard — disposition happens after effects drain, so discard is
+    // empty when SelectFromDiscardToDrawTop runs. Selection is skipped entirely.
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGHeadbutt", 1, "ATTACK", 0, Some(0)));
+
+    // Nothing to select, Headbutt just goes to discard after effects
+    if let Screen::Combat { draw_pile, discard_pile, .. } = state.current_screen() {
+        assert!(draw_pile.is_empty());
+        assert_eq!(discard_pile.len(), 1);
+        assert_eq!(discard_pile[0].id, "BGHeadbutt");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+// ── DamageSource::StrikesInHand / StrengthMultiplier ──
+
+#[test]
+fn perfected_strike_bonus_per_strike() {
+    let hand = vec![
+        make_hand_card("BGPerfected Strike", 2, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGTwin Strike", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGPerfected Strike", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // 2 other Strikes in hand (BGStrike_R, BGTwin Strike)
+        // Damage = 3 + 1*2 = 5
+        assert_eq!(monsters[0].hp, 15); // 20 - 5
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn perfected_strike_no_other_strikes() {
+    let hand = vec![
+        make_hand_card("BGPerfected Strike", 2, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGPerfected Strike", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // No other Strikes, damage = 3
+        assert_eq!(monsters[0].hp, 17); // 20 - 3
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn heavy_blade_scales_with_strength() {
+    let hand = vec![make_hand_card("BGHeavy Blade", 2, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [{"id": "Strength", "amount": 2}],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGHeavy Blade", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // Damage = 3 + 3*2 = 9
+        assert_eq!(monsters[0].hp, 11); // 20 - 9
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn heavy_blade_no_strength() {
+    let hand = vec![make_hand_card("BGHeavy Blade", 2, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGHeavy Blade", 2, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // No strength, damage = 3 + 3*0 = 3
+        assert_eq!(monsters[0].hp, 17); // 20 - 3
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ConditionalOnDieRoll ──
 
 #[test]

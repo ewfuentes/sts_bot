@@ -5,6 +5,12 @@ pub enum DamageSource {
     ExhaustPileSize,
     /// Player's current block.
     CurrentBlock,
+    /// Base damage + per_strike bonus for each other "Strike" card in hand.
+    StrikesInHand { base: i16, per_strike: i16 },
+    /// Base damage + multiplier * current Strength. Use multiplier = total desired
+    /// (e.g. 3 for Heavy Blade base) since normal 1x strength scaling is not yet
+    /// implemented in apply_damage_to_monster.
+    StrengthMultiplier { base: i16, multiplier: i16 },
 }
 
 /// What happens when a card effect resolves.
@@ -32,6 +38,8 @@ pub enum Effect {
     },
     /// Player chooses card(s) from hand and applies an action to each.
     SelectFromHand { min: u8, max: u8, action: HandSelectAction },
+    /// Player chooses a card from the discard pile to put on top of draw pile.
+    SelectFromDiscardToDrawTop,
     /// Double the player's current block.
     DoubleBlock,
     /// Gain temporary strength (capped at MAX_STRENGTH). Applies both Strength
@@ -60,6 +68,13 @@ pub enum Effect {
         min: u8,
         max: u8,
         effects: &'static [Effect],
+    },
+    /// Dispose a played card to the appropriate pile. Only created dynamically
+    /// at runtime (never in static CardInfo definitions).
+    DisposeCard {
+        card: crate::types::Card,
+        exhaust: bool,
+        rebound: bool,
     },
     Custom(&'static str),
 }

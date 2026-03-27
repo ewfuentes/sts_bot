@@ -741,8 +741,7 @@ impl GameState {
                 let target = *target_index;
 
                 if let Some(Screen::Combat {
-                    hand, draw_pile, discard_pile, exhaust_pile,
-                    player_energy, effect_queue, ..
+                    hand, player_energy, effect_queue, ..
                 }) = self.screen.last_mut()
                 {
                     if hand_idx >= hand.len() {
@@ -768,24 +767,23 @@ impl GameState {
                         effect_queue.push_back((effect.clone(), target));
                     }
 
-                    // Move card to appropriate pile
+                    // Queue disposition as the final effect (after all card effects).
+                    // Powers are consumed — no disposition needed.
                     let is_power = info
                         .map(|i| i.card_type == card_db::CardType::Power)
                         .unwrap_or(card.card_type == "POWER");
-                    let does_exhaust = info
-                        .map(|i| i.does_exhaust(card.upgraded))
-                        .unwrap_or(false);
-                    let does_rebound = info
-                        .map(|i| i.rebound)
-                        .unwrap_or(false);
-                    if is_power {
-                        // Powers are consumed
-                    } else if does_exhaust {
-                        exhaust_card(card, exhaust_pile, effect_queue);
-                    } else if does_rebound {
-                        draw_pile.push(card);
-                    } else {
-                        discard_pile.push(card);
+                    if !is_power {
+                        let does_exhaust = info
+                            .map(|i| i.does_exhaust(card.upgraded))
+                            .unwrap_or(false);
+                        let does_rebound = info
+                            .map(|i| i.rebound)
+                            .unwrap_or(false);
+                        effect_queue.push_back((Effect::DisposeCard {
+                            card,
+                            exhaust: does_exhaust,
+                            rebound: does_rebound,
+                        }, None));
                     }
                 }
 
@@ -878,6 +876,23 @@ impl GameState {
                         if let Some(Screen::Combat { effect_queue, .. }) = self.screen.last_mut() {
                             for effect in effects.into_iter().rev() {
                                 effect_queue.push_front((effect, target));
+                            }
+                        }
+                        self.drain_effect_queue();
+                    }
+                }
+            }
+            Action::PickDiscard { choice_index, .. } => {
+                let idx = *choice_index as usize;
+                if let Screen::DiscardSelect { cards } = self.current_screen() {
+                    if idx < cards.len() {
+                        let (discard_idx, _) = cards[idx];
+                        self.pop_screen();
+                        if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.screen.last_mut() {
+                            let discard_idx = discard_idx as usize;
+                            if discard_idx < discard_pile.len() {
+                                let card = discard_pile.remove(discard_idx);
+                                draw_pile.push(card);
                             }
                         }
                         self.drain_effect_queue();
@@ -981,10 +996,23 @@ impl GameState {
             Effect::DamageBasedOn(source) => {
                 if let Some(idx) = target_index {
                     let idx = idx as usize;
-                    if let Some(Screen::Combat { monsters, player_block, exhaust_pile, .. }) = self.screen.last_mut() {
+                    if let Some(Screen::Combat { monsters, player_block, exhaust_pile, hand, player_powers, .. }) = self.screen.last_mut() {
                         let amount = match source {
                             DamageSource::ExhaustPileSize => exhaust_pile.len() as u16,
                             DamageSource::CurrentBlock => *player_block,
+                            DamageSource::StrikesInHand { base, per_strike } => {
+                                let count = hand.iter()
+                                    .filter(|hc| hc.card.id.contains("Strike"))
+                                    .count() as i16;
+                                (*base + *per_strike * count).max(0) as u16
+                            }
+                            DamageSource::StrengthMultiplier { base, multiplier } => {
+                                let str_amount = player_powers.iter()
+                                    .find(|p| p.id == "Strength")
+                                    .map(|p| p.amount as i16)
+                                    .unwrap_or(0);
+                                (*base + *multiplier * str_amount).max(0) as u16
+                            }
                         };
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             apply_damage_to_monster(&mut monsters[idx], amount);
@@ -1133,6 +1161,23 @@ impl GameState {
                     return EffectResult::Paused;
                 }
             }
+            Effect::SelectFromDiscardToDrawTop => {
+                if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.screen.last_mut() {
+                    if discard_pile.is_empty() {
+                        return EffectResult::Continue;
+                    }
+                    if discard_pile.len() == 1 {
+                        // Auto-resolve: only one card
+                        let card = discard_pile.pop().unwrap();
+                        draw_pile.push(card);
+                        return EffectResult::Continue;
+                    }
+                    let cards: Vec<(u8, Card)> = discard_pile.iter().enumerate()
+                        .map(|(i, c)| (i as u8, c.clone())).collect();
+                    self.push_screen(Screen::DiscardSelect { cards });
+                    return EffectResult::Paused;
+                }
+            }
             Effect::ForEachInHand { filter, per_card, exhaust_matched } => {
                 if let Some(Screen::Combat { hand, exhaust_pile, effect_queue, .. }) = self.screen.last_mut() {
                     let matches_filter = |card: &Card| {
@@ -1215,6 +1260,17 @@ impl GameState {
                         for effect in effects.iter().rev() {
                             effect_queue.push_front((effect.clone(), target_index));
                         }
+                    }
+                }
+            }
+            Effect::DisposeCard { card, exhaust, rebound } => {
+                if let Some(Screen::Combat { discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.screen.last_mut() {
+                    if *exhaust {
+                        exhaust_card(card.clone(), exhaust_pile, effect_queue);
+                    } else if *rebound {
+                        draw_pile.push(card.clone());
+                    } else {
+                        discard_pile.push(card.clone());
                     }
                 }
             }
@@ -1414,6 +1470,11 @@ impl GameState {
             }
             Screen::HandSelect { cards, picked_indices, min_cards, max_cards, .. } => {
                 hand_select_actions(cards, picked_indices.len() as u8, *min_cards, *max_cards)
+            }
+            Screen::DiscardSelect { cards } => {
+                cards.iter().enumerate().map(|(i, (_, card))| {
+                    Action::PickDiscard { card: card.clone(), choice_index: i as u8 }
+                }).collect()
             }
             Screen::ChoiceSelect { choices, .. } => {
                 choices.iter().enumerate().map(|(i, (label, _))| {
