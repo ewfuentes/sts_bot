@@ -56,11 +56,14 @@ pub struct CardInfo {
     pub ethereal: bool,
     pub rebound: bool,
     pub play_condition: Option<PlayCondition>,
+    /// Effects triggered when this card is exhausted (by any means).
+    pub on_exhaust: Option<&'static [Effect]>,
     // Upgrade overrides (None = same as base)
     pub upgraded_cost: Option<i8>,
     pub upgraded_effects: Option<&'static [Effect]>,
     pub upgraded_exhaust: Option<bool>,
     pub upgraded_ethereal: Option<bool>,
+    pub upgraded_on_exhaust: Option<&'static [Effect]>,
 }
 
 impl CardInfo {
@@ -82,10 +85,12 @@ impl CardInfo {
             ethereal: false,
             rebound: false,
             play_condition: None,
+            on_exhaust: None,
             upgraded_cost: None,
             upgraded_effects: None,
             upgraded_exhaust: None,
             upgraded_ethereal: None,
+            upgraded_on_exhaust: None,
         }
     }
 
@@ -101,6 +106,16 @@ impl CardInfo {
 
     const fn rebound(mut self) -> Self {
         self.rebound = true;
+        self
+    }
+
+    const fn on_exhaust(mut self, effects: &'static [Effect]) -> Self {
+        self.on_exhaust = Some(effects);
+        self
+    }
+
+    const fn upgraded_on_exhaust(mut self, effects: &'static [Effect]) -> Self {
+        self.upgraded_on_exhaust = Some(effects);
         self
     }
 
@@ -164,6 +179,15 @@ impl CardInfo {
             self.upgraded_exhaust.unwrap_or(self.exhaust)
         } else {
             self.exhaust
+        }
+    }
+
+    /// Get the on-exhaust effects for a card (base or upgraded).
+    pub fn effective_on_exhaust(&self, upgraded: bool) -> Option<&[Effect]> {
+        if upgraded {
+            self.upgraded_on_exhaust.or(self.on_exhaust)
+        } else {
+            self.on_exhaust
         }
     }
 }
@@ -276,7 +300,10 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("BGBurning Pact", 1, CardType::Skill, CardTarget::None,
             &[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(2)])
             .upgraded_effects(&[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(3)]),
-        // BGSentinel excluded: has triggerOnExhaust (gain energy) not yet modeled
+        CardInfo::new("BGSentinel", 1, CardType::Skill, CardTarget::_Self, &[Block(2)])
+            .on_exhaust(&[GainEnergy(2)])
+            .upgraded_effects(&[Block(3)])
+            .upgraded_on_exhaust(&[GainEnergy(3)]),
         CardInfo::new("BGGhostly Armor", 1, CardType::Skill, CardTarget::_Self, &[Block(2)])
             .ethereal()
             .upgraded_effects(&[Block(3)]),

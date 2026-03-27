@@ -899,6 +899,76 @@ fn warcry_draws_then_puts_on_top() {
     }
 }
 
+// ── OnExhaust ──
+
+#[test]
+fn sentinel_gains_energy_when_exhausted_by_true_grit() {
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        make_hand_card("BGSentinel", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    // Play True Grit — only Sentinel left, auto-exhausts it
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, player_energy, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(*player_block, 1); // True Grit block
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(exhaust_pile[0].id, "BGSentinel");
+        assert_eq!(*player_energy, 4); // 3 - 1 (True Grit cost) + 2 (Sentinel on_exhaust)
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn sentinel_upgraded_gains_more_energy_on_exhaust() {
+    let upgraded_sentinel = HandCard {
+        card: Card {
+            id: "BGSentinel".to_string(),
+            name: "BGSentinel".to_string(),
+            cost: 1,
+            card_type: "SKILL".to_string(),
+            upgraded: true,
+        },
+    };
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        upgraded_sentinel,
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 5); // 3 - 1 + 3 (upgraded on_exhaust)
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn sentinel_no_trigger_when_played_normally() {
+    let hand = vec![make_hand_card("BGSentinel", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    // Play Sentinel normally — it goes to discard, not exhaust
+    state.apply(&play_action("BGSentinel", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, player_energy, discard_pile, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(*player_block, 2);
+        assert_eq!(*player_energy, 2); // 3 - 1, no on_exhaust bonus
+        assert_eq!(discard_pile.len(), 1);
+        assert!(exhaust_pile.is_empty());
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── ForEachInHand ──
 
 #[test]
