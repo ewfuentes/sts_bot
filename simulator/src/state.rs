@@ -1257,9 +1257,9 @@ impl GameState {
                 shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
             }
             Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
-            Screen::Combat { hand, monsters, effect_queue, player_energy, .. } => {
+            Screen::Combat { hand, monsters, effect_queue, player_energy, draw_pile, .. } => {
                 assert!(effect_queue.is_empty(), "Effect queue should be empty when generating actions");
-                combat_actions(hand, monsters, *player_energy)
+                combat_actions(hand, monsters, *player_energy, draw_pile)
             }
             Screen::HandSelect { cards, picked_indices, min_cards, max_cards, .. } => {
                 hand_select_actions(cards, picked_indices.len() as u8, *min_cards, *max_cards)
@@ -1445,7 +1445,7 @@ fn grid_actions(cards: &[Card]) -> Vec<Action> {
         .collect()
 }
 
-fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8) -> Vec<Action> {
+fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8, draw_pile: &[Card]) -> Vec<Action> {
     let mut actions = Vec::new();
     let live_monsters: Vec<(u8, &Monster)> = monsters
         .iter()
@@ -1454,6 +1454,11 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8) -> Vec<Ac
         .map(|(i, m)| (i as u8, m))
         .collect();
 
+    // Precompute hand-level conditions for play predicates
+    let all_attacks = hand.iter().all(|hc| hc.card.card_type == "ATTACK");
+    let attack_count = hand.iter().filter(|hc| hc.card.card_type == "ATTACK").count();
+    let draw_pile_empty = draw_pile.is_empty();
+
     for (i, hc) in hand.iter().enumerate() {
         let info = card_db::lookup(&hc.card.id);
         let cost = info
@@ -1461,6 +1466,19 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8) -> Vec<Ac
             .unwrap_or(hc.card.cost);
         if cost < 0 || cost > energy as i8 {
             continue;
+        }
+        // Check play condition
+        if let Some(cond) = info.and_then(|i| i.play_condition) {
+            use card_db::PlayCondition::*;
+            let met = match cond {
+                HandAllAttacks => all_attacks,
+                HandNoOtherAttacks => attack_count <= 1,
+                DrawPileEmpty => draw_pile_empty,
+                Never => false,
+            };
+            if !met {
+                continue;
+            }
         }
         let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
         if has_target {
