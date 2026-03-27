@@ -905,6 +905,23 @@ impl GameState {
                     }
                 }
             }
+            Action::PickExhaust { choice_index, .. } => {
+                let idx = *choice_index as usize;
+                if let Screen::ExhaustSelect { cards } = self.current_screen() {
+                    if idx < cards.len() {
+                        let (exhaust_idx, _) = cards[idx];
+                        self.pop_screen();
+                        if let Some(Screen::Combat { exhaust_pile, hand, .. }) = self.find_combat_mut() {
+                            let exhaust_idx = exhaust_idx as usize;
+                            if exhaust_idx < exhaust_pile.len() {
+                                let card = exhaust_pile.remove(exhaust_idx);
+                                hand.push(HandCard { card });
+                            }
+                        }
+                        self.drain_effect_queue();
+                    }
+                }
+            }
             Action::Skip => {
                 if matches!(self.current_screen(), Screen::Combat { .. }) {
                     self.finish_combat();
@@ -1181,6 +1198,22 @@ impl GameState {
                     let cards: Vec<(u8, Card)> = discard_pile.iter().enumerate()
                         .map(|(i, c)| (i as u8, c.clone())).collect();
                     self.push_screen(Screen::DiscardSelect { cards });
+                    return EffectResult::Paused;
+                }
+            }
+            Effect::SelectFromExhaustToHand => {
+                if let Some(Screen::Combat { exhaust_pile, hand, .. }) = self.find_combat_mut() {
+                    if exhaust_pile.is_empty() {
+                        return EffectResult::Continue;
+                    }
+                    if exhaust_pile.len() == 1 {
+                        let card = exhaust_pile.pop().unwrap();
+                        hand.push(HandCard { card });
+                        return EffectResult::Continue;
+                    }
+                    let cards: Vec<(u8, Card)> = exhaust_pile.iter().enumerate()
+                        .map(|(i, c)| (i as u8, c.clone())).collect();
+                    self.push_screen(Screen::ExhaustSelect { cards });
                     return EffectResult::Paused;
                 }
             }
@@ -1480,6 +1513,11 @@ impl GameState {
             Screen::DiscardSelect { cards } => {
                 cards.iter().enumerate().map(|(i, (_, card))| {
                     Action::PickDiscard { card: card.clone(), choice_index: i as u8 }
+                }).collect()
+            }
+            Screen::ExhaustSelect { cards } => {
+                cards.iter().enumerate().map(|(i, (_, card))| {
+                    Action::PickExhaust { card: card.clone(), choice_index: i as u8 }
                 }).collect()
             }
             Screen::ChoiceSelect { choices, .. } => {

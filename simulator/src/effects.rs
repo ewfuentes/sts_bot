@@ -40,6 +40,8 @@ pub enum Effect {
     SelectFromHand { min: u8, max: u8, action: HandSelectAction },
     /// Player chooses a card from the discard pile to put on top of draw pile.
     SelectFromDiscardToDrawTop,
+    /// Player chooses a card from the exhaust pile to put in hand.
+    SelectFromExhaustToHand,
     /// Double the player's current block.
     DoubleBlock,
     /// Gain temporary strength (capped at MAX_STRENGTH). Applies both Strength

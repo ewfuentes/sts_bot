@@ -1508,6 +1508,119 @@ fn headbutt_empty_discard_skips_selection() {
     }
 }
 
+// ── SelectFromExhaustToHand ──
+
+#[test]
+fn exhume_selects_from_exhaust_to_hand() {
+    let hand = vec![make_hand_card("BGExhume", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [
+                make_card("BGOffering", 0, "SKILL"),
+                make_card("BGImpervious", 2, "SKILL"),
+            ],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGExhume", 1, "SKILL", 0, None));
+
+    // Should pause on ExhaustSelect
+    assert!(matches!(state.current_screen(), Screen::ExhaustSelect { .. }),
+        "Expected ExhaustSelect, got {:?}", state.current_screen());
+
+    let actions = state.available_actions();
+    assert_eq!(actions.len(), 2); // two cards in exhaust pile
+
+    state.apply(&Action::PickExhaust {
+        card: make_card("BGOffering", 0, "SKILL"),
+        choice_index: 0,
+    });
+
+    if let Screen::Combat { hand, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 1);
+        assert_eq!(hand[0].card.id, "BGOffering");
+        // Impervious remains in exhaust + Exhume disposed there after
+        assert_eq!(exhaust_pile.len(), 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn exhume_auto_resolves_with_one_card() {
+    let hand = vec![make_hand_card("BGExhume", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [
+                make_card("BGOffering", 0, "SKILL"),
+            ],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGExhume", 1, "SKILL", 0, None));
+
+    // Auto-resolves with 1 card
+    if let Screen::Combat { hand, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 1);
+        assert_eq!(hand[0].card.id, "BGOffering");
+        assert_eq!(exhaust_pile.len(), 1); // just Exhume itself
+        assert_eq!(exhaust_pile[0].id, "BGExhume");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn exhume_empty_exhaust_does_nothing() {
+    let hand = vec![make_hand_card("BGExhume", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
+
+    state.apply(&play_action("BGExhume", 1, "SKILL", 0, None));
+
+    // Empty exhaust pile (Exhume hasn't been disposed yet), nothing to select
+    if let Screen::Combat { hand, exhaust_pile, .. } = state.current_screen() {
+        assert!(hand.is_empty());
+        assert_eq!(exhaust_pile.len(), 1); // just Exhume itself
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── DamageSource::StrikesInHand / StrengthMultiplier ──
 
 #[test]
