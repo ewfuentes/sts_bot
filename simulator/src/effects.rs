@@ -17,6 +17,8 @@ pub enum DamageSource {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     Damage(i16),
+    /// Damage not affected by strength (thorns, Combust, orbs, etc.)
+    DamageFixed(i16),
     DamageAll(i16),
     /// Deal damage to a single target equal to a value derived from game state.
     DamageBasedOn(DamageSource),
@@ -46,6 +48,8 @@ pub enum Effect {
     /// Exhausts it (unless it's a Power). If the card targets an enemy,
     /// pushes a TargetSelect screen for target selection.
     PlayTopOfDraw,
+    /// Deal damage to each attacking monster, once per hit in their intent.
+    FlameBarrier(i16),
     /// Double the player's current block.
     DoubleBlock,
     /// Gain temporary strength (capped at MAX_STRENGTH). Applies both Strength
