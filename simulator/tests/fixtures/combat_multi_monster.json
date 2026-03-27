@@ -55,8 +55,8 @@
       }
     ],
     "hand": [
-      {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false, "is_playable": true, "has_target": true},
-      {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false, "is_playable": true, "has_target": false}
+      {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+      {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false}
     ],
     "draw_pile": [],
     "discard_pile": [],

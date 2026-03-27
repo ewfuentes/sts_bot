@@ -10,11 +10,9 @@ fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
     }
 }
 
-fn make_hand_card(id: &str, cost: i8, card_type: &str, playable: bool, target: bool) -> HandCard {
+fn make_hand_card(id: &str, cost: i8, card_type: &str) -> HandCard {
     HandCard {
         card: make_card(id, cost, card_type),
-        is_playable: playable,
-        has_target: target,
     }
 }
 
@@ -55,8 +53,8 @@ fn combat_state(
 #[test]
 fn play_card_deducts_energy_and_discards() {
     let hand = vec![
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
     ];
     let mut state = combat_state(hand, vec![], vec![], vec![], 3, 0);
 
@@ -81,7 +79,7 @@ fn play_card_deducts_energy_and_discards() {
 #[test]
 fn play_card_exhaust_goes_to_exhaust_pile() {
     let hand = vec![
-        make_hand_card("BGOffering", 0, "SKILL", true, false),
+        make_hand_card("BGOffering", 0, "SKILL"),
     ];
     let mut state = combat_state(hand, vec![], vec![], vec![], 3, 0);
 
@@ -105,7 +103,7 @@ fn play_card_exhaust_goes_to_exhaust_pile() {
 #[test]
 fn play_power_card_is_consumed() {
     let hand = vec![
-        make_hand_card("BGInflame", 2, "POWER", true, false),
+        make_hand_card("BGInflame", 2, "POWER"),
     ];
     let mut state = combat_state(hand, vec![], vec![], vec![], 3, 0);
 
@@ -127,10 +125,10 @@ fn play_power_card_is_consumed() {
 }
 
 #[test]
-fn play_card_recalculates_playability() {
+fn unaffordable_card_not_in_available_actions() {
     let hand = vec![
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("BGBash", 2, "ATTACK", true, true), // costs 2
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGBash", 2, "ATTACK"), // costs 2
     ];
     let mut state = combat_state(hand, vec![], vec![], vec![], 2, 0);
 
@@ -142,14 +140,12 @@ fn play_card_recalculates_playability() {
         target_name: Some("Jaw Worm".into()),
     });
 
-    if let Screen::Combat { hand, player_energy, .. } = state.current_screen() {
-        assert_eq!(*player_energy, 1);
-        assert_eq!(hand.len(), 1);
-        assert_eq!(hand[0].card.id, "BGBash");
-        assert!(!hand[0].is_playable); // Can't afford Bash (cost 2) with 1 energy
-    } else {
-        panic!("Expected Combat screen");
-    }
+    // Bash (cost 2) should not appear in available actions with only 1 energy
+    let actions = state.available_actions();
+    let has_bash = actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGBash"));
+    assert!(!has_bash, "Bash should not be playable with 1 energy");
+    // EndTurn should still be available
+    assert!(actions.iter().any(|a| matches!(a, Action::EndTurn)));
 }
 
 // ── EndTurn tests ──
@@ -157,8 +153,8 @@ fn play_card_recalculates_playability() {
 #[test]
 fn end_turn_discards_hand_and_draws() {
     let hand = vec![
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
     ];
     let draw_pile = vec![
         make_card("BGBash", 2, "ATTACK"),
@@ -195,7 +191,7 @@ fn end_turn_discards_hand_and_draws() {
 #[test]
 fn end_turn_reshuffles_when_draw_pile_small() {
     let hand = vec![
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
     ];
     let draw_pile = vec![
         make_card("BGBash", 2, "ATTACK"),
@@ -224,8 +220,8 @@ fn end_turn_reshuffles_when_draw_pile_small() {
 #[test]
 fn end_turn_ethereal_cards_exhaust() {
     let hand = vec![
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("Dazed", -2, "STATUS", false, false),  // ethereal status
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("Dazed", -2, "STATUS"),  // ethereal status
     ];
     let draw_pile = vec![
         make_card("BGStrike_R", 1, "ATTACK"),
@@ -250,7 +246,7 @@ fn end_turn_ethereal_cards_exhaust() {
 }
 
 #[test]
-fn end_turn_sets_playability_from_card_db() {
+fn end_turn_playability_via_available_actions() {
     let hand = vec![];
     let draw_pile = vec![
         make_card("BGBash", 2, "ATTACK"),      // cost 2, target: Enemy
@@ -263,25 +259,28 @@ fn end_turn_sets_playability_from_card_db() {
 
     state.apply(&Action::EndTurn);
 
-    if let Screen::Combat { hand, .. } = state.current_screen() {
-        assert_eq!(hand.len(), 5);
-        // All playable cards should have correct has_target from card_db
-        for hc in hand {
-            let info = sts_simulator::card_db::lookup(&hc.card.id);
-            if let Some(info) = info {
-                assert_eq!(hc.has_target, info.target.has_target(),
-                    "has_target mismatch for {}", hc.card.id);
-                let cost = info.effective_cost(hc.card.upgraded);
-                let expected_playable = cost >= 0 && cost <= 3;
-                assert_eq!(hc.is_playable, expected_playable,
-                    "is_playable mismatch for {} (cost {})", hc.card.id, cost);
-            }
-        }
-        // Specifically: Dazed should not be playable
-        let dazed = hand.iter().find(|h| h.card.id == "Dazed").unwrap();
-        assert!(!dazed.is_playable);
-        assert!(!dazed.has_target);
-    } else {
-        panic!("Expected Combat screen");
-    }
+    // After end turn, energy is 3. Check available actions.
+    let actions = state.available_actions();
+
+    // Dazed (cost -2) should not be playable
+    let has_dazed = actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "Dazed"));
+    assert!(!has_dazed, "Dazed should not be playable");
+
+    // BGBash (cost 2) should be playable and target enemy
+    let bash_actions: Vec<_> = actions.iter()
+        .filter(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGBash"))
+        .collect();
+    assert_eq!(bash_actions.len(), 1); // one target
+    assert!(matches!(bash_actions[0], Action::PlayCard { target_index: Some(0), .. }));
+
+    // BGDefend_R (cost 1) should be playable and not target
+    let defend_actions: Vec<_> = actions.iter()
+        .filter(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGDefend_R"))
+        .collect();
+    assert_eq!(defend_actions.len(), 1);
+    assert!(matches!(defend_actions[0], Action::PlayCard { target_index: None, .. }));
+
+    // BGBludgeon (cost 3) should be playable
+    let has_bludgeon = actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGBludgeon"));
+    assert!(has_bludgeon);
 }

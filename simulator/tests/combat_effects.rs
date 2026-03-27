@@ -10,11 +10,9 @@ fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
     }
 }
 
-fn make_hand_card(id: &str, cost: i8, card_type: &str, playable: bool, target: bool) -> HandCard {
+fn make_hand_card(id: &str, cost: i8, card_type: &str) -> HandCard {
     HandCard {
         card: make_card(id, cost, card_type),
-        is_playable: playable,
-        has_target: target,
     }
 }
 
@@ -74,7 +72,7 @@ fn combat_state_with_monsters(
 
 #[test]
 fn strike_deals_damage() {
-    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -90,7 +88,7 @@ fn strike_deals_damage() {
 
 #[test]
 fn damage_blocked_by_monster_block() {
-    let hand = vec![make_hand_card("BGBludgeon", 3, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGBludgeon", 3, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 3)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -107,7 +105,7 @@ fn damage_blocked_by_monster_block() {
 
 #[test]
 fn damage_kills_last_monster_transitions_to_rewards() {
-    let hand = vec![make_hand_card("BGBludgeon", 3, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGBludgeon", 3, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 5, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -120,7 +118,7 @@ fn damage_kills_last_monster_transitions_to_rewards() {
 
 #[test]
 fn damage_kills_one_of_two_monsters_stays_in_combat() {
-    let hand = vec![make_hand_card("BGBludgeon", 3, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGBludgeon", 3, "ATTACK")];
     let monsters = vec![
         make_monster("BGJawWorm", "Jaw Worm", 5, 0),
         make_monster("BGGreenLouse", "Louse", 5, 0),
@@ -139,7 +137,7 @@ fn damage_kills_one_of_two_monsters_stays_in_combat() {
 
 #[test]
 fn twin_strike_hits_twice() {
-    let hand = vec![make_hand_card("BGTwin Strike", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGTwin Strike", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -156,7 +154,7 @@ fn twin_strike_hits_twice() {
 
 #[test]
 fn cleave_damages_all_enemies() {
-    let hand = vec![make_hand_card("BGCleave", 1, "ATTACK", true, false)];
+    let hand = vec![make_hand_card("BGCleave", 1, "ATTACK")];
     let monsters = vec![
         make_monster("BGGreenLouse", "Louse A", 5, 0),
         make_monster("BGRedLouse", "Louse B", 5, 0),
@@ -175,7 +173,7 @@ fn cleave_damages_all_enemies() {
 
 #[test]
 fn damage_all_skips_dead_monsters() {
-    let hand = vec![make_hand_card("BGCleave", 1, "ATTACK", true, false)];
+    let hand = vec![make_hand_card("BGCleave", 1, "ATTACK")];
     let mut dead = make_monster("BGRedLouse", "Dead Louse", 0, 0);
     dead.is_gone = true;
     let monsters = vec![
@@ -198,7 +196,7 @@ fn damage_all_skips_dead_monsters() {
 
 #[test]
 fn defend_gains_block() {
-    let hand = vec![make_hand_card("BGDefend_R", 1, "SKILL", true, false)];
+    let hand = vec![make_hand_card("BGDefend_R", 1, "SKILL")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -214,8 +212,8 @@ fn defend_gains_block() {
 #[test]
 fn block_stacks() {
     let hand = vec![
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
     ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 2);
@@ -233,7 +231,7 @@ fn block_stacks() {
 
 #[test]
 fn bash_applies_vulnerable() {
-    let hand = vec![make_hand_card("BGBash", 2, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGBash", 2, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -251,7 +249,7 @@ fn bash_applies_vulnerable() {
 
 #[test]
 fn shockwave_applies_to_all_enemies() {
-    let hand = vec![make_hand_card("BGShockwave", 2, "SKILL", true, false)];
+    let hand = vec![make_hand_card("BGShockwave", 2, "SKILL")];
     let monsters = vec![
         make_monster("BGGreenLouse", "Louse A", 5, 0),
         make_monster("BGRedLouse", "Louse B", 5, 0),
@@ -274,7 +272,7 @@ fn shockwave_applies_to_all_enemies() {
 
 #[test]
 fn inflame_applies_strength_to_player() {
-    let hand = vec![make_hand_card("BGInflame", 2, "POWER", true, false)];
+    let hand = vec![make_hand_card("BGInflame", 2, "POWER")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -295,8 +293,8 @@ fn inflame_applies_strength_to_player() {
 #[test]
 fn power_stacks() {
     let hand = vec![
-        make_hand_card("BGInflame", 2, "POWER", true, false),
-        make_hand_card("BGInflame", 2, "POWER", true, false),
+        make_hand_card("BGInflame", 2, "POWER"),
+        make_hand_card("BGInflame", 2, "POWER"),
     ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 6, 0);
@@ -317,7 +315,7 @@ fn power_stacks() {
 
 #[test]
 fn pommel_strike_deals_damage_and_draws() {
-    let hand = vec![make_hand_card("BGPommel Strike", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGPommel Strike", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
 
     let json = serde_json::json!({
@@ -357,7 +355,7 @@ fn pommel_strike_deals_damage_and_draws() {
 
 #[test]
 fn offering_loses_hp_gains_energy_draws() {
-    let hand = vec![make_hand_card("BGOffering", 0, "SKILL", true, false)];
+    let hand = vec![make_hand_card("BGOffering", 0, "SKILL")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
 
     let json = serde_json::json!({
@@ -403,7 +401,7 @@ fn offering_loses_hp_gains_energy_draws() {
 
 #[test]
 fn uppercut_damages_and_debuffs() {
-    let hand = vec![make_hand_card("BGUppercut", 2, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGUppercut", 2, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -424,7 +422,7 @@ fn uppercut_damages_and_debuffs() {
 
 #[test]
 fn wild_strike_adds_dazed_to_draw() {
-    let hand = vec![make_hand_card("BGWild Strike", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGWild Strike", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -441,7 +439,7 @@ fn wild_strike_adds_dazed_to_draw() {
 
 #[test]
 fn power_through_blocks_and_adds_dazed() {
-    let hand = vec![make_hand_card("BGPower Through", 1, "SKILL", true, false)];
+    let hand = vec![make_hand_card("BGPower Through", 1, "SKILL")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -458,7 +456,7 @@ fn power_through_blocks_and_adds_dazed() {
 
 #[test]
 fn immolate_damages_all_and_adds_two_dazed() {
-    let hand = vec![make_hand_card("BGImmolate", 2, "ATTACK", true, false)];
+    let hand = vec![make_hand_card("BGImmolate", 2, "ATTACK")];
     let monsters = vec![
         make_monster("BGGreenLouse", "Louse A", 5, 0),
         make_monster("BGRedLouse", "Louse B", 5, 0),
@@ -482,7 +480,7 @@ fn immolate_damages_all_and_adds_two_dazed() {
 
 #[test]
 fn body_slam_deals_damage_equal_to_block() {
-    let hand = vec![make_hand_card("BGBody Slam", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGBody Slam", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 4);
 
@@ -498,7 +496,7 @@ fn body_slam_deals_damage_equal_to_block() {
 
 #[test]
 fn body_slam_zero_block_deals_no_damage() {
-    let hand = vec![make_hand_card("BGBody Slam", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGBody Slam", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -513,7 +511,7 @@ fn body_slam_zero_block_deals_no_damage() {
 
 #[test]
 fn rampage_deals_damage_equal_to_exhaust_pile_size() {
-    let hand = vec![make_hand_card("BGRampage", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGRampage", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
 
     let json = serde_json::json!({
@@ -552,7 +550,7 @@ fn rampage_deals_damage_equal_to_exhaust_pile_size() {
 
 #[test]
 fn rampage_empty_exhaust_deals_no_damage() {
-    let hand = vec![make_hand_card("BGRampage", 1, "ATTACK", true, true)];
+    let hand = vec![make_hand_card("BGRampage", 1, "ATTACK")];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
 
@@ -575,13 +573,11 @@ fn rampage_upgraded_exhausts_then_deals_damage() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
-        is_playable: true,
-        has_target: true,
     };
     let hand = vec![
         upgraded_rampage.clone(),
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
     ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0)];
 
@@ -640,9 +636,9 @@ fn rampage_upgraded_exhausts_then_deals_damage() {
 #[test]
 fn true_grit_blocks_then_pushes_hand_select() {
     let hand = vec![
-        make_hand_card("BGTrue Grit", 1, "SKILL", true, false),
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
     ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
@@ -663,9 +659,9 @@ fn true_grit_blocks_then_pushes_hand_select() {
 #[test]
 fn true_grit_exhaust_pick_resolves() {
     let hand = vec![
-        make_hand_card("BGTrue Grit", 1, "SKILL", true, false),
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
     ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0);
@@ -690,9 +686,9 @@ fn true_grit_exhaust_pick_resolves() {
 #[test]
 fn burning_pact_exhausts_then_draws() {
     let hand = vec![
-        make_hand_card("BGBurning Pact", 1, "SKILL", true, false),
-        make_hand_card("BGStrike_R", 1, "ATTACK", true, true),
-        make_hand_card("BGDefend_R", 1, "SKILL", true, false),
+        make_hand_card("BGBurning Pact", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
     ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
 
@@ -744,7 +740,7 @@ fn burning_pact_exhausts_then_draws() {
 #[test]
 fn exhaust_auto_resolves_with_empty_hand() {
     let hand = vec![
-        make_hand_card("BGBurning Pact", 1, "SKILL", true, false),
+        make_hand_card("BGBurning Pact", 1, "SKILL"),
     ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0)];
 
