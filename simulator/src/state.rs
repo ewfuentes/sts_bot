@@ -781,7 +781,7 @@ impl GameState {
                     if is_power {
                         // Powers are consumed
                     } else if does_exhaust {
-                        exhaust_pile.push(card);
+                        exhaust_card(card, exhaust_pile, effect_queue);
                     } else if does_rebound {
                         draw_pile.push(card);
                     } else {
@@ -795,7 +795,7 @@ impl GameState {
             Action::EndTurn => {
                 if let Screen::Combat {
                     hand, draw_pile, discard_pile, exhaust_pile,
-                    player_block, player_energy, turn, ..
+                    player_block, player_energy, turn, effect_queue, ..
                 } = self.current_screen_mut()
                 {
                     // 1. Discard hand (ethereal → exhaust)
@@ -805,7 +805,7 @@ impl GameState {
                             .map(|i| i.is_ethereal(hc.card.upgraded))
                             .unwrap_or(false);
                         if is_ethereal {
-                            exhaust_pile.push(hc.card);
+                            exhaust_card(hc.card, exhaust_pile, effect_queue);
                         } else {
                             discard_pile.push(hc.card);
                         }
@@ -1077,12 +1077,12 @@ impl GameState {
                 }
             }
             Effect::SelectFromHand { min, max, action } => {
-                if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, .. }) = self.screen.last_mut() {
+                if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.screen.last_mut() {
                     if hand.len() <= *min as usize {
                         // Auto-resolve: not enough cards for a real choice
                         let selected: Vec<HandCard> = hand.drain(..).collect();
                         for hc in selected {
-                            apply_hand_select_action(*action, hc.card, discard_pile, exhaust_pile, draw_pile);
+                            apply_hand_select_action(*action, hc.card, discard_pile, exhaust_pile, draw_pile, effect_queue);
                         }
                         return EffectResult::Continue;
                     }
@@ -1122,7 +1122,7 @@ impl GameState {
                         for hc in hand.drain(..) {
                             if matches_filter(&hc.card) {
                                 count += 1;
-                                exhaust_pile.push(hc.card);
+                                exhaust_card(hc.card, exhaust_pile, effect_queue);
                             } else {
                                 kept.push(hc);
                             }
@@ -1186,12 +1186,12 @@ impl GameState {
         picked.sort();
         picked.reverse();
 
-        if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, .. }) = self.screen.last_mut() {
+        if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.screen.last_mut() {
             for hi in picked {
                 let hi = hi as usize;
                 if hi < hand.len() {
                     let hc = hand.remove(hi);
-                    apply_hand_select_action(action, hc.card, discard_pile, exhaust_pile, draw_pile);
+                    apply_hand_select_action(action, hc.card, discard_pile, exhaust_pile, draw_pile, effect_queue);
                 }
             }
         }
@@ -1647,14 +1647,31 @@ fn apply_hand_select_action(
     discard_pile: &mut Vec<Card>,
     exhaust_pile: &mut Vec<Card>,
     draw_pile: &mut Vec<Card>,
+    effect_queue: &mut std::collections::VecDeque<(Effect, Option<u8>)>,
 ) {
     match action {
-        HandSelectAction::Exhaust => exhaust_pile.push(card),
+        HandSelectAction::Exhaust => exhaust_card(card, exhaust_pile, effect_queue),
         HandSelectAction::Discard => discard_pile.push(card),
         HandSelectAction::PutOnTopOfDraw => draw_pile.push(card),
         HandSelectAction::Upgrade => {
             // TODO: upgrade the card and put it back in hand
         }
     }
+}
+
+/// Move a card to the exhaust pile and queue any on-exhaust effects.
+fn exhaust_card(
+    card: Card,
+    exhaust_pile: &mut Vec<Card>,
+    effect_queue: &mut std::collections::VecDeque<(Effect, Option<u8>)>,
+) {
+    if let Some(info) = card_db::lookup(&card.id) {
+        if let Some(effects) = info.effective_on_exhaust(card.upgraded) {
+            for effect in effects.iter().rev() {
+                effect_queue.push_front((effect.clone(), None));
+            }
+        }
+    }
+    exhaust_pile.push(card);
 }
 
