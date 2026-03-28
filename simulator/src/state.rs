@@ -781,10 +781,24 @@ impl GameState {
                         .unwrap_or(card.card_type == "ATTACK");
                     if is_attack {
                         let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
-                        let had_vuln = target.and_then(|t| monsters.get(t as usize))
-                            .map(|m| m.powers.iter().any(|p| p.id == "BGVulnerable"))
-                            .unwrap_or(false);
-                        effect_queue.push_back((Effect::TickDownAttackPowers { had_weak, had_vuln }, target));
+                        let mut vuln_mask: u8 = 0;
+                        match target {
+                            Some(t) => {
+                                if let Some(m) = monsters.get(t as usize) {
+                                    if m.powers.iter().any(|p| p.id == "BGVulnerable") {
+                                        vuln_mask |= 1 << t;
+                                    }
+                                }
+                            }
+                            None => {
+                                for (i, m) in monsters.iter().enumerate() {
+                                    if m.powers.iter().any(|p| p.id == "BGVulnerable") {
+                                        vuln_mask |= 1 << i;
+                                    }
+                                }
+                            }
+                        }
+                        effect_queue.push_back((Effect::TickDownAttackPowers { had_weak, vuln_mask }, target));
                     }
 
                     // Queue disposition as the final effect (after all card effects).
@@ -1416,17 +1430,14 @@ impl GameState {
                     }
                 }
             }
-            Effect::TickDownAttackPowers { had_weak, had_vuln } => {
+            Effect::TickDownAttackPowers { had_weak, vuln_mask } => {
                 if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                     if *had_weak {
                         apply_power(player_powers, "BGWeakened", -1);
                     }
-                    if *had_vuln {
-                        if let Some(idx) = target_index {
-                            let idx = idx as usize;
-                            if idx < monsters.len() {
-                                apply_power(&mut monsters[idx].powers, "BGVulnerable", -1);
-                            }
+                    for (i, monster) in monsters.iter_mut().enumerate() {
+                        if vuln_mask & (1 << i) != 0 {
+                            apply_power(&mut monster.powers, "BGVulnerable", -1);
                         }
                     }
                 }

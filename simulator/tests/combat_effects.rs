@@ -2605,3 +2605,28 @@ fn damage_fixed_ignores_strength_and_weak_and_vulnerable() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn aoe_attack_ticks_down_vulnerable_on_all_monsters() {
+    // Cleave is DamageAll — should tick Vulnerable on every monster that had it
+    let hand = vec![make_hand_card("BGCleave", 1, "ATTACK")];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![make_power("BGVulnerable", 2)]),
+        make_monster("BGGreenLouse", "Louse", 20, 0, vec![make_power("BGVulnerable", 1)]),
+    ];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![]);
+
+    state.apply(&play_action("BGCleave", 1, "ATTACK", 0, None));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // Cleave base 2 × 2 Vulnerable = 4 damage each
+        assert_eq!(monsters[0].hp, 16);
+        assert_eq!(monsters[1].hp, 16);
+        // Jaw Worm: 2 → 1
+        assert_eq!(monsters[0].powers.iter().find(|p| p.id == "BGVulnerable").unwrap().amount, 1);
+        // Louse: 1 → 0, removed
+        assert!(monsters[1].powers.iter().find(|p| p.id == "BGVulnerable").is_none());
+    } else {
+        panic!("Expected Combat screen");
+    }
+}

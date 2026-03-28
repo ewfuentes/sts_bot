@@ -87,9 +87,10 @@ pub enum Effect {
         rebound: bool,
     },
     /// After an Attack card resolves: tick down player's BGWeakened and
-    /// target monster's BGVulnerable. Only ticks powers that were present
-    /// before the card was played (booleans captured at queue time).
-    TickDownAttackPowers { had_weak: bool, had_vuln: bool },
+    /// monsters' BGVulnerable. Only ticks powers that were present before
+    /// the card was played. `vuln_mask` is a bitmask of monster indices
+    /// that had Vulnerable at queue time.
+    TickDownAttackPowers { had_weak: bool, vuln_mask: u8 },
     Custom(&'static str),
 }
 
