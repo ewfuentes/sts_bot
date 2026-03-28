@@ -7,9 +7,9 @@ pub enum DamageSource {
     CurrentBlock,
     /// Base damage + per_strike bonus for each other "Strike" card in hand.
     StrikesInHand { base: i16, per_strike: i16 },
-    /// Base damage + multiplier * current Strength. Use multiplier = total desired
-    /// (e.g. 3 for Heavy Blade base) since normal 1x strength scaling is not yet
-    /// implemented in apply_damage_to_monster.
+    /// Base damage + multiplier * current Strength. The result is then passed
+    /// through calculate_damage which adds 1x Strength, so multiplier should be
+    /// the desired total minus 1 (e.g. 2 for Heavy Blade's 3x scaling).
     StrengthMultiplier { base: i16, multiplier: i16 },
 }
 
@@ -86,6 +86,11 @@ pub enum Effect {
         exhaust: bool,
         rebound: bool,
     },
+    /// After an Attack card resolves: tick down player's BGWeakened and
+    /// monsters' BGVulnerable. Only ticks powers that were present before
+    /// the card was played. `vuln_mask` is a bitmask of monster indices
+    /// that had Vulnerable at queue time.
+    TickDownAttackPowers { had_weak: bool, vuln_mask: u8 },
     Custom(&'static str),
 }
 

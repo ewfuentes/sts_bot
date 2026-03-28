@@ -299,8 +299,8 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             &[DamageBasedOn(DamageSource::StrikesInHand { base: 3, per_strike: 1 })])
             .upgraded_effects(&[DamageBasedOn(DamageSource::StrikesInHand { base: 3, per_strike: 2 })]),
         CardInfo::new("BGHeavy Blade", 2, CardType::Attack, CardTarget::Enemy,
-            &[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 3 })])
-            .upgraded_effects(&[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 5 })]),
+            &[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 2 })])
+            .upgraded_effects(&[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 4 })]),
         CardInfo::new("BGFlame Barrier", 2, CardType::Skill, CardTarget::_Self,
             &[Block(3), FlameBarrier(1)])
             .upgraded_effects(&[Block(4), FlameBarrier(1)]),
