@@ -2630,3 +2630,58 @@ fn aoe_attack_ticks_down_vulnerable_on_all_monsters() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn havoc_attack_with_vulnerable_and_weakened() {
+    let hand = vec![make_hand_card("BGHavoc", 1, "SKILL")];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![make_power("BGVulnerable", 2)]),
+        make_monster("BGGreenLouse", "Louse", 20, 0, vec![make_power("BGVulnerable", 1)]),
+    ];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [make_card("BGStrike_R", 1, "ATTACK")],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [{"id": "BGWeakened", "amount": 2}],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&play_action("BGHavoc", 1, "SKILL", 0, None));
+
+    // Should push TargetSelect for the Strike
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
+
+    // Pick Jaw Worm (index 0)
+    state.apply(&Action::PickTarget {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        target_index: 0,
+        target_name: "Jaw Worm".to_string(),
+    });
+
+    if let Screen::Combat { monsters, player_powers, .. } = state.current_screen() {
+        // Weak + Vulnerable cancel: base damage 1, 20 - 1 = 19
+        assert_eq!(monsters[0].hp, 19);
+        // Jaw Worm Vulnerable ticked from 2 → 1 (targeted)
+        assert_eq!(monsters[0].powers.iter().find(|p| p.id == "BGVulnerable").unwrap().amount, 1);
+        // Louse Vulnerable unchanged at 1 (not targeted)
+        assert_eq!(monsters[1].powers.iter().find(|p| p.id == "BGVulnerable").unwrap().amount, 1);
+        // Player Weakened ticked from 2 → 1
+        assert_eq!(player_powers.iter().find(|p| p.id == "BGWeakened").unwrap().amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
