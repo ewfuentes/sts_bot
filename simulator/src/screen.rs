@@ -99,8 +99,6 @@ pub enum Screen {
         card: Option<Card>,
         #[serde(skip)]
         effects: Vec<Effect>,
-        #[serde(skip)]
-        force_exhaust: bool,
     },
     ChoiceSelect {
         #[serde(skip)]

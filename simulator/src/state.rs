@@ -782,20 +782,9 @@ impl GameState {
                     if is_attack {
                         let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
                         let mut vuln_mask: u8 = 0;
-                        match target {
-                            Some(t) => {
-                                if let Some(m) = monsters.get(t as usize) {
-                                    if m.powers.iter().any(|p| p.id == "BGVulnerable") {
-                                        vuln_mask |= 1 << t;
-                                    }
-                                }
-                            }
-                            None => {
-                                for (i, m) in monsters.iter().enumerate() {
-                                    if m.powers.iter().any(|p| p.id == "BGVulnerable") {
-                                        vuln_mask |= 1 << i;
-                                    }
-                                }
+                        for (i, m) in monsters.iter().enumerate() {
+                            if m.powers.iter().any(|p| p.id == "BGVulnerable") {
+                                vuln_mask |= 1 << i;
                             }
                         }
                         effect_queue.push_back((Effect::TickDownAttackPowers { had_weak, vuln_mask }, target));
@@ -945,23 +934,13 @@ impl GameState {
             }
             Action::PickTarget { target_index, .. } => {
                 let target = Some(*target_index);
-                if let Screen::TargetSelect { card: Some(card), effects, force_exhaust } = self.current_screen() {
+                if let Screen::TargetSelect { effects, .. } = self.current_screen() {
                     let effects = effects.clone();
-                    let card = card.clone();
-                    let force_exhaust = *force_exhaust;
                     self.pop_screen();
                     if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
-                        for effect in effects.iter().rev() {
-                            effect_queue.push_front((effect.clone(), target));
+                        for effect in effects.into_iter().rev() {
+                            effect_queue.push_front((effect, target));
                         }
-                        if force_exhaust {
-                            effect_queue.push_back((Effect::DisposeCard {
-                                card,
-                                exhaust: true,
-                                rebound: false,
-                            }, None));
-                        }
-                        // Powers (force_exhaust=false) are consumed — no disposition needed.
                     }
                     self.drain_effect_queue();
                 }
@@ -1293,45 +1272,55 @@ impl GameState {
                 }
             }
             Effect::PlayTopOfDraw => {
-                if let Some(Screen::Combat { draw_pile, discard_pile, effect_queue, .. }) = self.find_combat_mut() {
+                if let Some(Screen::Combat { draw_pile, discard_pile, player_powers, monsters, effect_queue, .. }) = self.find_combat_mut() {
                     let card = if let Some(c) = draw_card(draw_pile, discard_pile) {
                         c
                     } else {
                         return EffectResult::Continue;
                     };
                     let info = card_db::lookup(&card.id);
-                    // Unplayable cards (Dazed, statuses) have no effects — they
-                    // just get exhausted. This matches the game behavior.
-                    let effects: Vec<Effect> = info
-                        .map(|i| i.effective_effects(card.upgraded).to_vec())
-                        .unwrap_or_default();
                     let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
                     let is_power = info
                         .map(|i| i.card_type == card_db::CardType::Power)
                         .unwrap_or(false);
-                    let force_exhaust = !is_power;
+                    let is_attack = info
+                        .map(|i| i.card_type == card_db::CardType::Attack)
+                        .unwrap_or(false);
+
+                    // Build full effects list: card effects + tick-down + dispose
+                    let mut all_effects: Vec<Effect> = info
+                        .map(|i| i.effective_effects(card.upgraded).to_vec())
+                        .unwrap_or_default();
+
+                    if is_attack {
+                        let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
+                        let mut vuln_mask: u8 = 0;
+                        for (i, m) in monsters.iter().enumerate() {
+                            if m.powers.iter().any(|p| p.id == "BGVulnerable") {
+                                vuln_mask |= 1 << i;
+                            }
+                        }
+                        all_effects.push(Effect::TickDownAttackPowers { had_weak, vuln_mask });
+                    }
+
+                    if !is_power {
+                        all_effects.push(Effect::DisposeCard {
+                            card: card.clone(),
+                            exhaust: true,
+                            rebound: false,
+                        });
+                    }
 
                     if has_target {
-                        // Need target selection — push screen and pause
                         self.push_screen(Screen::TargetSelect {
                             card: Some(card),
-                            effects,
-                            force_exhaust,
+                            effects: all_effects,
                         });
                         return EffectResult::Paused;
                     } else {
-                        // No target needed — queue effects + disposition directly
-                        for effect in effects.iter().rev() {
-                            effect_queue.push_front((effect.clone(), None));
+                        for effect in all_effects.into_iter().rev() {
+                            effect_queue.push_front((effect, None));
                         }
-                        if force_exhaust {
-                            effect_queue.push_back((Effect::DisposeCard {
-                                card: card.clone(),
-                                exhaust: true,
-                                rebound: false,
-                            }, None));
-                        }
-                        // Powers are consumed (no disposition needed)
                     }
                 }
             }
@@ -1436,8 +1425,14 @@ impl GameState {
                     if *had_weak {
                         apply_power(player_powers, "BGWeakened", -1);
                     }
+                    // For single-target attacks, only tick the targeted monster.
+                    // For AoE (target_index None), tick all monsters in the mask.
+                    let effective_mask = match target_index {
+                        Some(idx) => vuln_mask & (1 << idx),
+                        None => *vuln_mask,
+                    };
                     for (i, monster) in monsters.iter_mut().enumerate() {
-                        if vuln_mask & (1 << i) != 0 {
+                        if effective_mask & (1 << i) != 0 {
                             apply_power(&mut monster.powers, "BGVulnerable", -1);
                         }
                     }
