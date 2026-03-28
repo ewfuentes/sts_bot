@@ -747,7 +747,7 @@ impl GameState {
                 let target = *target_index;
 
                 if let Some(Screen::Combat {
-                    hand, player_energy, effect_queue, ..
+                    hand, player_energy, player_powers, monsters, effect_queue, ..
                 }) = self.screen.last_mut()
                 {
                     if hand_idx >= hand.len() {
@@ -771,6 +771,20 @@ impl GameState {
                         .unwrap_or(&[]);
                     for effect in effects {
                         effect_queue.push_back((effect.clone(), target));
+                    }
+
+                    // Tick down Weak/Vulnerable after an Attack card resolves.
+                    // Snapshot whether these powers exist now, so we don't tick
+                    // down stacks that the card itself applies.
+                    let is_attack = info
+                        .map(|i| i.card_type == card_db::CardType::Attack)
+                        .unwrap_or(card.card_type == "ATTACK");
+                    if is_attack {
+                        let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
+                        let had_vuln = target.and_then(|t| monsters.get(t as usize))
+                            .map(|m| m.powers.iter().any(|p| p.id == "BGVulnerable"))
+                            .unwrap_or(false);
+                        effect_queue.push_back((Effect::TickDownAttackPowers { had_weak, had_vuln }, target));
                     }
 
                     // Queue disposition as the final effect (after all card effects).
@@ -1016,9 +1030,10 @@ impl GameState {
             Effect::Damage(amount) => {
                 if let Some(idx) = target_index {
                     let idx = idx as usize;
-                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                    if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && !monsters[idx].is_gone {
-                            apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                            let dmg = calculate_damage(*amount, player_powers, &monsters[idx].powers);
+                            apply_damage_to_monster(&mut monsters[idx], dmg);
                         }
                     }
                 }
@@ -1035,10 +1050,11 @@ impl GameState {
                 }
             }
             Effect::DamageAll(amount) => {
-                if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                     for monster in monsters.iter_mut() {
                         if !monster.is_gone {
-                            apply_damage_to_monster(monster, *amount as u16);
+                            let dmg = calculate_damage(*amount, player_powers, &monster.powers);
+                            apply_damage_to_monster(monster, dmg);
                         }
                     }
                 }
@@ -1397,6 +1413,21 @@ impl GameState {
                         draw_pile.push(card.clone());
                     } else {
                         discard_pile.push(card.clone());
+                    }
+                }
+            }
+            Effect::TickDownAttackPowers { had_weak, had_vuln } => {
+                if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
+                    if *had_weak {
+                        apply_power(player_powers, "BGWeakened", -1);
+                    }
+                    if *had_vuln {
+                        if let Some(idx) = target_index {
+                            let idx = idx as usize;
+                            if idx < monsters.len() {
+                                apply_power(&mut monsters[idx].powers, "BGVulnerable", -1);
+                            }
+                        }
                     }
                 }
             }
@@ -1890,6 +1921,29 @@ fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) {
     }
 }
 
+fn get_power_amount(powers: &[crate::types::Power], power_id: &str) -> i32 {
+    powers.iter().find(|p| p.id == power_id).map(|p| p.amount).unwrap_or(0)
+}
+
+/// Calculate damage after applying attacker and defender power modifiers.
+/// Order: atDamageGive (Strength) → atDamageReceive (Vulnerable ×2).
+fn calculate_damage(base: i16, attacker_powers: &[crate::types::Power], defender_powers: &[crate::types::Power]) -> u16 {
+    let mut dmg = base as f32;
+
+    dmg += get_power_amount(attacker_powers, "Strength") as f32;
+
+    let attacker_weak = get_power_amount(attacker_powers, "BGWeakened") > 0;
+    let defender_vuln = get_power_amount(defender_powers, "BGVulnerable") > 0;
+
+    if attacker_weak && !defender_vuln {
+        dmg -= 1.0;
+    } else if !attacker_weak && defender_vuln {
+        dmg *= 2.0;
+    }
+
+    dmg.floor().max(0.0) as u16
+}
+
 /// Maximum value for the Strength power.
 const MAX_STRENGTH: i32 = 8;
 
@@ -1907,6 +1961,10 @@ fn apply_power(powers: &mut Vec<crate::types::Power>, power_id: &str, amount: i3
             id: power_id.to_string(),
             amount: capped,
         });
+    }
+    // Remove the power if it dropped to 0 or below
+    if let Some(pos) = powers.iter().position(|p| p.id == power_id && p.amount <= 0) {
+        powers.remove(pos);
     }
 }
 
