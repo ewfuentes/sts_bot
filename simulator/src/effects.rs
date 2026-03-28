@@ -86,6 +86,8 @@ pub enum Effect {
         exhaust: bool,
         rebound: bool,
     },
+    /// Move a card to the exhaust pile and trigger on-exhaust power effects.
+    ExhaustCard { card: crate::types::Card },
     /// After an Attack card resolves: tick down player's BGWeakened and
     /// monsters' BGVulnerable. Only ticks powers that were present before
     /// the card was played. `vuln_mask` is a bitmask of monster indices
