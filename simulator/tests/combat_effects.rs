@@ -2686,6 +2686,196 @@ fn havoc_attack_with_vulnerable_and_weakened() {
     }
 }
 
+// ── On-draw power triggers ──
+
+#[test]
+fn evolve_draws_on_status_draw() {
+    let hand = vec![
+        make_hand_card("BGShrug It Off", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("Evolve", 1)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("Dazed", -2, "STATUS"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Play Shrug It Off: Block(2), Draw(1)
+    // Draw(1) → DrawOneCard → draws Dazed (Status) → Evolve triggers Draw(1) → draws BGDefend_R
+    state.apply(&play_action("BGShrug It Off", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { hand, draw_pile, .. } = state.current_screen() {
+        // Hand should have: Dazed + BGDefend_R (from Evolve trigger)
+        assert_eq!(hand.len(), 2, "Expected 2 cards in hand: Dazed + Evolve draw");
+        assert_eq!(hand[0].card.id, "Dazed");
+        assert_eq!(hand[1].card.id, "BGDefend_R");
+        assert_eq!(draw_pile.len(), 1, "One card should remain in draw pile");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn fire_breathing_damages_on_status_draw() {
+    let hand = vec![
+        make_hand_card("BGShrug It Off", 1, "SKILL"),
+    ];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+        make_monster("BGJawWorm", "Jaw Worm", 6, 0, vec![]),
+    ];
+    let player_powers = vec![make_power("FireBreathing", 2)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("Dazed", -2, "STATUS"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Play Shrug It Off: Block(2), Draw(1) → draws Dazed → FireBreathing deals 2 to all
+    state.apply(&play_action("BGShrug It Off", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { hand, monsters, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 1);
+        assert_eq!(hand[0].card.id, "Dazed");
+        assert_eq!(monsters[0].hp, 6, "First monster should take 2 damage");
+        assert_eq!(monsters[1].hp, 4, "Second monster should take 2 damage");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn draw_triggers_shuffle_when_draw_pile_empty() {
+    let hand = vec![
+        make_hand_card("BGShrug It Off", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+            ],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Play Shrug It Off: Block(2), Draw(1) → draw pile empty → shuffle discard → draw BGStrike_R
+    state.apply(&play_action("BGShrug It Off", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { hand, draw_pile, discard_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 1, "Should have drawn 1 card after shuffle");
+        assert_eq!(hand[0].card.id, "BGStrike_R");
+        assert!(draw_pile.is_empty());
+        // Discard has the played Shrug It Off
+        assert_eq!(discard_pile.len(), 1);
+        assert_eq!(discard_pile[0].id, "BGShrug It Off");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn evolve_and_fire_breathing_both_trigger_on_status() {
+    let hand = vec![
+        make_hand_card("BGShrug It Off", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let player_powers = vec![
+        make_power("Evolve", 1),
+        make_power("FireBreathing", 1),
+    ];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("Dazed", -2, "STATUS"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Draw(1) → Dazed → Evolve draws 1 + FireBreathing deals 1 to all
+    state.apply(&play_action("BGShrug It Off", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { hand, monsters, .. } = state.current_screen() {
+        // Hand: Dazed + BGDefend_R (from Evolve)
+        assert_eq!(hand.len(), 2);
+        // FireBreathing dealt 1 damage
+        assert_eq!(monsters[0].hp, 9);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── On-exhaust power triggers ──
 
 #[test]

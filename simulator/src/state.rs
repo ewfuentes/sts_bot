@@ -781,14 +781,7 @@ impl GameState {
                         .map(|i| i.card_type == card_db::CardType::Attack)
                         .unwrap_or(card.card_type == "ATTACK");
                     if is_attack {
-                        let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
-                        let mut vuln_mask: u8 = 0;
-                        for (i, m) in monsters.iter().enumerate() {
-                            if m.powers.iter().any(|p| p.id == "BGVulnerable") {
-                                vuln_mask |= 1 << i;
-                            }
-                        }
-                        effect_queue.push_back((Effect::TickDownAttackPowers { had_weak, vuln_mask }, target));
+                        effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));
                     }
 
                     // Queue disposition as the final effect (after all card effects).
@@ -838,8 +831,7 @@ impl GameState {
                 self.drain_effect_queue();
 
                 if let Screen::Combat {
-                    hand, draw_pile, discard_pile,
-                    player_block, player_energy, turn, ..
+                    player_block, player_energy, turn, effect_queue, ..
                 } = self.current_screen_mut()
                 {
                     // 2. [STUB] Monster turns would go here
@@ -850,12 +842,7 @@ impl GameState {
                     // 4. [STUB] Turn-start power triggers would go here
 
                     // 5-6. Draw 5 cards (reshuffle if needed)
-                    let draw_count = 5usize;
-                    for _ in 0..draw_count {
-                        if let Some(card) = draw_card(draw_pile, discard_pile) {
-                            hand.push(HandCard { card });
-                        }
-                    }
+                    effect_queue.push_back((Effect::Draw(5), None));
 
                     // 7. Energy → 3
                     *player_energy = 3;
@@ -863,6 +850,9 @@ impl GameState {
                     // 8. Turn += 1
                     *turn += 1;
                 }
+
+                // Drain draw effects (and any on-draw/on-shuffle triggers)
+                self.drain_effect_queue();
             }
             Action::PickHandCard { choice_index, .. } => {
                 let idx = *choice_index as usize;
@@ -1157,11 +1147,11 @@ impl GameState {
                 }
             }
             Effect::Draw(count) => {
-                if let Some(Screen::Combat { hand, draw_pile, discard_pile, .. }) = self.find_combat_mut() {
+                if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                    // Push to front in reverse order so they execute in order
+                    // before any subsequent effects already in the queue.
                     for _ in 0..*count {
-                        if let Some(card) = draw_card(draw_pile, discard_pile) {
-                            hand.push(HandCard { card });
-                        }
+                        effect_queue.push_front((Effect::DrawOneCard, None));
                     }
                 }
             }
@@ -1282,56 +1272,9 @@ impl GameState {
                 }
             }
             Effect::PlayTopOfDraw => {
-                if let Some(Screen::Combat { draw_pile, discard_pile, player_powers, monsters, effect_queue, .. }) = self.find_combat_mut() {
-                    let card = if let Some(c) = draw_card(draw_pile, discard_pile) {
-                        c
-                    } else {
-                        return EffectResult::Continue;
-                    };
-                    let info = card_db::lookup(&card.id);
-                    let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
-                    let is_power = info
-                        .map(|i| i.card_type == card_db::CardType::Power)
-                        .unwrap_or(false);
-                    let is_attack = info
-                        .map(|i| i.card_type == card_db::CardType::Attack)
-                        .unwrap_or(false);
-
-                    // Build full effects list: card effects + tick-down + dispose
-                    let mut all_effects: Vec<Effect> = info
-                        .map(|i| i.effective_effects(card.upgraded).to_vec())
-                        .unwrap_or_default();
-
-                    if is_attack {
-                        let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
-                        let mut vuln_mask: u8 = 0;
-                        for (i, m) in monsters.iter().enumerate() {
-                            if m.powers.iter().any(|p| p.id == "BGVulnerable") {
-                                vuln_mask |= 1 << i;
-                            }
-                        }
-                        all_effects.push(Effect::TickDownAttackPowers { had_weak, vuln_mask });
-                    }
-
-                    if !is_power {
-                        all_effects.push(Effect::DisposeCard {
-                            card: card.clone(),
-                            exhaust: true,
-                            rebound: false,
-                        });
-                    }
-
-                    if has_target {
-                        self.push_screen(Screen::TargetSelect {
-                            card: Some(card),
-                            effects: all_effects,
-                        });
-                        return EffectResult::Paused;
-                    } else {
-                        for effect in all_effects.into_iter().rev() {
-                            effect_queue.push_front((effect, None));
-                        }
-                    }
+                if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                    effect_queue.push_front((Effect::PlayLastDrawnFromHand, None));
+                    effect_queue.push_front((Effect::DrawOneCard, None));
                 }
             }
             Effect::ForEachInHand { filter, per_card, exhaust_matched } => {
@@ -1451,6 +1394,99 @@ impl GameState {
                     for (i, monster) in monsters.iter_mut().enumerate() {
                         if effective_mask & (1 << i) != 0 {
                             apply_power(&mut monster.powers, "BGVulnerable", -1);
+                        }
+                    }
+                }
+            }
+            Effect::DrawOneCard => {
+                if let Some(Screen::Combat { draw_pile, discard_pile, hand, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    if draw_pile.is_empty() && !discard_pile.is_empty() {
+                        // Shuffle first, then retry the draw
+                        effect_queue.push_front((Effect::DrawOneCard, None));
+                        effect_queue.push_front((Effect::ShuffleDiscardIntoDraw, None));
+                        return EffectResult::Continue;
+                    }
+                    if let Some(card) = draw_pile.pop() {
+                        let card_type = card_db::lookup(&card.id)
+                            .map(|info| info.card_type);
+                        hand.push(HandCard { card });
+
+                        if let Some(ct) = card_type {
+                            let triggered = power_db::collect_triggered_effects(
+                                power_db::PowerTrigger::OnDraw { card_type: ct },
+                                player_powers,
+                            );
+                            for effect in triggered {
+                                effect_queue.push_back((effect, None));
+                            }
+                        }
+                    }
+                }
+            }
+            Effect::ShuffleDiscardIntoDraw => {
+                if let Some(Screen::Combat { draw_pile, discard_pile, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    draw_pile.append(discard_pile);
+                    draw_pile.reverse();
+
+                    let triggered = power_db::collect_triggered_effects(
+                        power_db::PowerTrigger::OnShuffle,
+                        player_powers,
+                    );
+                    for effect in triggered {
+                        effect_queue.push_back((effect, None));
+                    }
+                }
+            }
+            Effect::DamageFixedAll(amount) => {
+                if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                    for monster in monsters.iter_mut() {
+                        if !monster.is_gone {
+                            apply_damage_to_monster(monster, *amount as u16);
+                        }
+                    }
+                }
+            }
+            Effect::PlayLastDrawnFromHand => {
+                if let Some(Screen::Combat { hand, player_powers, monsters, effect_queue, .. }) = self.find_combat_mut() {
+                    let card = if let Some(hc) = hand.pop() {
+                        hc.card
+                    } else {
+                        return EffectResult::Continue;
+                    };
+                    let info = card_db::lookup(&card.id);
+                    let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
+                    let is_power = info
+                        .map(|i| i.card_type == card_db::CardType::Power)
+                        .unwrap_or(false);
+                    let is_attack = info
+                        .map(|i| i.card_type == card_db::CardType::Attack)
+                        .unwrap_or(false);
+
+                    let mut all_effects: Vec<Effect> = info
+                        .map(|i| i.effective_effects(card.upgraded).to_vec())
+                        .unwrap_or_default();
+
+                    if is_attack {
+                        all_effects.push(make_tick_down_attack_powers_effect(player_powers, monsters));
+                    }
+
+                    if !is_power {
+                        all_effects.push(Effect::DisposeCard {
+                            card: card.clone(),
+                            exhaust: true,
+                            rebound: false,
+                        });
+                    }
+
+                    if has_target {
+                        self.push_screen(Screen::TargetSelect {
+                            card: Some(card),
+                            effects: all_effects,
+                        });
+                        return EffectResult::Paused;
+                    } else {
+                        for effect in all_effects.into_iter().rev() {
+                            effect_queue.push_front((effect, None));
                         }
                     }
                 }
@@ -2027,14 +2063,20 @@ fn apply_hand_select_action(
     }
 }
 
-/// Draw a card from the draw pile, reshuffling discard into draw if needed.
-/// Returns None if both piles are empty.
-fn draw_card(draw_pile: &mut Vec<Card>, discard_pile: &mut Vec<Card>) -> Option<Card> {
-    if draw_pile.is_empty() && !discard_pile.is_empty() {
-        draw_pile.append(discard_pile);
-        draw_pile.reverse();
+/// Snapshot the current Weak/Vulnerable state and produce a TickDownAttackPowers
+/// effect for queuing after an attack resolves.
+fn make_tick_down_attack_powers_effect(
+    player_powers: &[crate::types::Power],
+    monsters: &[crate::types::Monster],
+) -> Effect {
+    let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
+    let mut vuln_mask: u8 = 0;
+    for (i, m) in monsters.iter().enumerate() {
+        if m.powers.iter().any(|p| p.id == "BGVulnerable") {
+            vuln_mask |= 1 << i;
+        }
     }
-    draw_pile.pop()
+    Effect::TickDownAttackPowers { had_weak, vuln_mask }
 }
 
 /// Move a card to the exhaust pile and queue any on-exhaust effects.

@@ -3,6 +3,8 @@ use crate::effects::Effect;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerTrigger {
     OnExhaust,
+    OnDraw { card_type: crate::card_db::CardType },
+    OnShuffle,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,26 @@ static POWERS: &[PowerInfo] = &[
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::Draw(0)], // amount substituted at runtime
         }],
+    },
+    PowerInfo {
+        id: "Evolve",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
+            effects: &[Effect::Draw(0)], // amount substituted at runtime
+        }],
+    },
+    PowerInfo {
+        id: "FireBreathing",
+        triggers: &[
+            TriggeredEffect {
+                trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
+                effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+            },
+            TriggeredEffect {
+                trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Curse },
+                effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+            },
+        ],
     },
 ];
 
@@ -64,6 +86,7 @@ fn substitute_amount(effect: &Effect, amount: i32) -> Effect {
     match effect {
         Effect::Block(0) => Effect::Block(amount as i16),
         Effect::Draw(0) => Effect::Draw(amount as u8),
+        Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amount as i16),
         other => other.clone(),
     }
 }
