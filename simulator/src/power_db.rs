@@ -3,8 +3,7 @@ use crate::effects::Effect;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerTrigger {
     OnExhaust,
-    OnDrawStatus,
-    OnDrawCurse,
+    OnDraw { card_type: crate::card_db::CardType },
     OnShuffle,
 }
 
@@ -39,7 +38,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "Evolve",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::OnDrawStatus,
+            trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
             effects: &[Effect::Draw(0)], // amount substituted at runtime
         }],
     },
@@ -47,11 +46,11 @@ static POWERS: &[PowerInfo] = &[
         id: "FireBreathing",
         triggers: &[
             TriggeredEffect {
-                trigger: PowerTrigger::OnDrawStatus,
+                trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
                 effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
             },
             TriggeredEffect {
-                trigger: PowerTrigger::OnDrawCurse,
+                trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Curse },
                 effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
             },
         ],

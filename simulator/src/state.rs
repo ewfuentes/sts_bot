@@ -781,14 +781,7 @@ impl GameState {
                         .map(|i| i.card_type == card_db::CardType::Attack)
                         .unwrap_or(card.card_type == "ATTACK");
                     if is_attack {
-                        let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
-                        let mut vuln_mask: u8 = 0;
-                        for (i, m) in monsters.iter().enumerate() {
-                            if m.powers.iter().any(|p| p.id == "BGVulnerable") {
-                                vuln_mask |= 1 << i;
-                            }
-                        }
-                        effect_queue.push_back((Effect::TickDownAttackPowers { had_weak, vuln_mask }, target));
+                        effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));
                     }
 
                     // Queue disposition as the final effect (after all card effects).
@@ -1418,26 +1411,14 @@ impl GameState {
                             .map(|info| info.card_type);
                         hand.push(HandCard { card });
 
-                        match card_type {
-                            Some(card_db::CardType::Status) => {
-                                let triggered = power_db::collect_triggered_effects(
-                                    power_db::PowerTrigger::OnDrawStatus,
-                                    player_powers,
-                                );
-                                for effect in triggered {
-                                    effect_queue.push_back((effect, None));
-                                }
+                        if let Some(ct) = card_type {
+                            let triggered = power_db::collect_triggered_effects(
+                                power_db::PowerTrigger::OnDraw { card_type: ct },
+                                player_powers,
+                            );
+                            for effect in triggered {
+                                effect_queue.push_back((effect, None));
                             }
-                            Some(card_db::CardType::Curse) => {
-                                let triggered = power_db::collect_triggered_effects(
-                                    power_db::PowerTrigger::OnDrawCurse,
-                                    player_powers,
-                                );
-                                for effect in triggered {
-                                    effect_queue.push_back((effect, None));
-                                }
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -1486,14 +1467,7 @@ impl GameState {
                         .unwrap_or_default();
 
                     if is_attack {
-                        let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
-                        let mut vuln_mask: u8 = 0;
-                        for (i, m) in monsters.iter().enumerate() {
-                            if m.powers.iter().any(|p| p.id == "BGVulnerable") {
-                                vuln_mask |= 1 << i;
-                            }
-                        }
-                        all_effects.push(Effect::TickDownAttackPowers { had_weak, vuln_mask });
+                        all_effects.push(make_tick_down_attack_powers_effect(player_powers, monsters));
                     }
 
                     if !is_power {
@@ -2087,6 +2061,22 @@ fn apply_hand_select_action(
             // TODO: upgrade the card and put it back in hand
         }
     }
+}
+
+/// Snapshot the current Weak/Vulnerable state and produce a TickDownAttackPowers
+/// effect for queuing after an attack resolves.
+fn make_tick_down_attack_powers_effect(
+    player_powers: &[crate::types::Power],
+    monsters: &[crate::types::Monster],
+) -> Effect {
+    let had_weak = player_powers.iter().any(|p| p.id == "BGWeakened");
+    let mut vuln_mask: u8 = 0;
+    for (i, m) in monsters.iter().enumerate() {
+        if m.powers.iter().any(|p| p.id == "BGVulnerable") {
+            vuln_mask |= 1 << i;
+        }
+    }
+    Effect::TickDownAttackPowers { had_weak, vuln_mask }
 }
 
 /// Move a card to the exhaust pile and queue any on-exhaust effects.
