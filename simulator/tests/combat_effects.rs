@@ -2685,3 +2685,75 @@ fn havoc_attack_with_vulnerable_and_weakened() {
         panic!("Expected Combat screen");
     }
 }
+
+// ── On-exhaust power triggers ──
+
+#[test]
+fn feel_no_pain_gains_block_on_exhaust() {
+    // True Grit exhausts a card from hand
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("FeelNoPain", 2)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    // Play True Grit (Block 3 + exhaust a card from hand)
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+
+    // Auto-resolves since only 1 card left in hand
+    if let Screen::Combat { player_block, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(exhaust_pile.len(), 1);
+        // Block = 1 (True Grit base) + 2 (FeelNoPain)
+        assert_eq!(*player_block, 3);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn dark_embrace_draws_on_exhaust() {
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDarkEmbrace", 1)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGDefend_R", 1, "SKILL"),
+                make_card("BGDefend_R", 1, "SKILL"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Play True Grit (auto-exhausts the only other card)
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { hand, exhaust_pile, draw_pile, .. } = state.current_screen() {
+        assert_eq!(exhaust_pile.len(), 1);
+        // Drew 1 card from DarkEmbrace
+        assert_eq!(hand.len(), 1);
+        assert_eq!(draw_pile.len(), 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}

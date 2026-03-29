@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
 use crate::card_db;
+use crate::power_db;
 use crate::effects::{DamageSource, Effect, EffectTarget, HandFilter, HandSelectAction, Pile};
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
@@ -815,7 +816,7 @@ impl GameState {
             }
             Action::EndTurn => {
                 if let Screen::Combat {
-                    hand, draw_pile, discard_pile, exhaust_pile,
+                    hand, draw_pile, discard_pile,
                     player_block, player_energy, turn, effect_queue, ..
                 } = self.current_screen_mut()
                 {
@@ -826,12 +827,21 @@ impl GameState {
                             .map(|i| i.is_ethereal(hc.card.upgraded))
                             .unwrap_or(false);
                         if is_ethereal {
-                            exhaust_card(hc.card, exhaust_pile, effect_queue);
+                            effect_queue.push_back((Effect::ExhaustCard { card: hc.card }, None));
                         } else {
                             discard_pile.push(hc.card);
                         }
                     }
+                }
 
+                // Drain exhaust effects (FeelNoPain, DarkEmbrace, etc.)
+                self.drain_effect_queue();
+
+                if let Screen::Combat {
+                    hand, draw_pile, discard_pile,
+                    player_block, player_energy, turn, ..
+                } = self.current_screen_mut()
+                {
                     // 2. [STUB] Monster turns would go here
 
                     // 3. Player block → 0
@@ -1192,12 +1202,12 @@ impl GameState {
                 }
             }
             Effect::SelectFromHand { min, max, action } => {
-                if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
+                if let Some(Screen::Combat { hand, discard_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
                     if hand.len() <= *min as usize {
                         // Auto-resolve: not enough cards for a real choice
                         let selected: Vec<HandCard> = hand.drain(..).collect();
                         for hc in selected {
-                            apply_hand_select_action(*action, hc.card, discard_pile, exhaust_pile, draw_pile, effect_queue);
+                            apply_hand_select_action(*action, hc.card, discard_pile, draw_pile, effect_queue);
                         }
                         return EffectResult::Continue;
                     }
@@ -1325,7 +1335,7 @@ impl GameState {
                 }
             }
             Effect::ForEachInHand { filter, per_card, exhaust_matched } => {
-                if let Some(Screen::Combat { hand, exhaust_pile, effect_queue, .. }) = self.find_combat_mut() {
+                if let Some(Screen::Combat { hand, effect_queue, .. }) = self.find_combat_mut() {
                     let matches_filter = |card: &Card| {
                         let card_type = card_db::lookup(&card.id)
                             .map(|i| i.card_type)
@@ -1344,7 +1354,7 @@ impl GameState {
                         for hc in hand.drain(..) {
                             if matches_filter(&hc.card) {
                                 count += 1;
-                                exhaust_card(hc.card, exhaust_pile, effect_queue);
+                                effect_queue.push_front((Effect::ExhaustCard { card: hc.card }, None));
                             } else {
                                 kept.push(hc);
                             }
@@ -1410,14 +1420,21 @@ impl GameState {
                 }
             }
             Effect::DisposeCard { card, exhaust, rebound } => {
-                if let Some(Screen::Combat { discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
-                    if *exhaust {
-                        exhaust_card(card.clone(), exhaust_pile, effect_queue);
-                    } else if *rebound {
+                if *exhaust {
+                    if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                        effect_queue.push_front((Effect::ExhaustCard { card: card.clone() }, None));
+                    }
+                } else if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.find_combat_mut() {
+                    if *rebound {
                         draw_pile.push(card.clone());
                     } else {
                         discard_pile.push(card.clone());
                     }
+                }
+            }
+            Effect::ExhaustCard { card } => {
+                if let Some(Screen::Combat { exhaust_pile, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    exhaust_card(card.clone(), exhaust_pile, player_powers, effect_queue);
                 }
             }
             Effect::TickDownAttackPowers { had_weak, vuln_mask } => {
@@ -1473,12 +1490,12 @@ impl GameState {
         picked.sort();
         picked.reverse();
 
-        if let Some(Screen::Combat { hand, discard_pile, exhaust_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
+        if let Some(Screen::Combat { hand, discard_pile, draw_pile, effect_queue, .. }) = self.find_combat_mut() {
             for hi in picked {
                 let hi = hi as usize;
                 if hi < hand.len() {
                     let hc = hand.remove(hi);
-                    apply_hand_select_action(action, hc.card, discard_pile, exhaust_pile, draw_pile, effect_queue);
+                    apply_hand_select_action(action, hc.card, discard_pile, draw_pile, effect_queue);
                 }
             }
         }
@@ -1995,12 +2012,13 @@ fn apply_hand_select_action(
     action: HandSelectAction,
     card: Card,
     discard_pile: &mut Vec<Card>,
-    exhaust_pile: &mut Vec<Card>,
     draw_pile: &mut Vec<Card>,
     effect_queue: &mut std::collections::VecDeque<(Effect, Option<u8>)>,
 ) {
     match action {
-        HandSelectAction::Exhaust => exhaust_card(card, exhaust_pile, effect_queue),
+        HandSelectAction::Exhaust => {
+            effect_queue.push_front((Effect::ExhaustCard { card }, None));
+        }
         HandSelectAction::Discard => discard_pile.push(card),
         HandSelectAction::PutOnTopOfDraw => draw_pile.push(card),
         HandSelectAction::Upgrade => {
@@ -2023,6 +2041,7 @@ fn draw_card(draw_pile: &mut Vec<Card>, discard_pile: &mut Vec<Card>) -> Option<
 fn exhaust_card(
     card: Card,
     exhaust_pile: &mut Vec<Card>,
+    player_powers: &[crate::types::Power],
     effect_queue: &mut std::collections::VecDeque<(Effect, Option<u8>)>,
 ) {
     if let Some(info) = card_db::lookup(&card.id) {
@@ -2033,5 +2052,13 @@ fn exhaust_card(
         }
     }
     exhaust_pile.push(card);
+
+    let triggered = power_db::collect_triggered_effects(
+        power_db::PowerTrigger::OnExhaust,
+        player_powers,
+    );
+    for effect in triggered {
+        effect_queue.push_back((effect, None));
+    }
 }
 
