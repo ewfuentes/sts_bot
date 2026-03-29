@@ -5,6 +5,7 @@ pub enum PowerTrigger {
     OnExhaust,
     OnDraw { card_type: crate::card_db::CardType },
     OnShuffle,
+    EndOfTurn,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,20 @@ static POWERS: &[PowerInfo] = &[
                 effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
             },
         ],
+    },
+    PowerInfo {
+        id: "Metallicize",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::EndOfTurn,
+            effects: &[Effect::Block(0)], // amount substituted at runtime
+        }],
+    },
+    PowerInfo {
+        id: "BGCombust",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::EndOfTurn,
+            effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+        }],
     },
 ];
 

@@ -830,6 +830,18 @@ impl GameState {
                 // Drain exhaust effects (FeelNoPain, DarkEmbrace, etc.)
                 self.drain_effect_queue();
 
+                // End-of-turn power triggers (Metallicize, BGCombust, etc.)
+                if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
+                    let triggered = power_db::collect_triggered_effects(
+                        power_db::PowerTrigger::EndOfTurn,
+                        player_powers,
+                    );
+                    for effect in triggered {
+                        effect_queue.push_back((effect, None));
+                    }
+                }
+                self.drain_effect_queue();
+
                 if let Screen::Combat {
                     player_block, player_energy, turn, effect_queue, ..
                 } = self.current_screen_mut()
