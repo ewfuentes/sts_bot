@@ -3,6 +3,9 @@ use crate::effects::Effect;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PowerTrigger {
     OnExhaust,
+    OnDrawStatus,
+    OnDrawCurse,
+    OnShuffle,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +35,26 @@ static POWERS: &[PowerInfo] = &[
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::Draw(0)], // amount substituted at runtime
         }],
+    },
+    PowerInfo {
+        id: "Evolve",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::OnDrawStatus,
+            effects: &[Effect::Draw(0)], // amount substituted at runtime
+        }],
+    },
+    PowerInfo {
+        id: "FireBreathing",
+        triggers: &[
+            TriggeredEffect {
+                trigger: PowerTrigger::OnDrawStatus,
+                effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+            },
+            TriggeredEffect {
+                trigger: PowerTrigger::OnDrawCurse,
+                effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+            },
+        ],
     },
 ];
 
@@ -64,6 +87,7 @@ fn substitute_amount(effect: &Effect, amount: i32) -> Effect {
     match effect {
         Effect::Block(0) => Effect::Block(amount as i16),
         Effect::Draw(0) => Effect::Draw(amount as u8),
+        Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amount as i16),
         other => other.clone(),
     }
 }

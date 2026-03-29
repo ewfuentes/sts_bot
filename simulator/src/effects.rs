@@ -88,6 +88,17 @@ pub enum Effect {
     },
     /// Move a card to the exhaust pile and trigger on-exhaust power effects.
     ExhaustCard { card: crate::types::Card },
+    /// Draw exactly one card from the draw pile into hand.
+    /// If the draw pile is empty, queues ShuffleDiscardIntoDraw + re-queues self.
+    /// After drawing, checks for on-draw power triggers (Evolve, FireBreathing).
+    DrawOneCard,
+    /// Shuffle the discard pile into the draw pile. Fires on-shuffle power triggers.
+    ShuffleDiscardIntoDraw,
+    /// Deal fixed damage (no Strength scaling) to all non-gone enemies.
+    DamageFixedAll(i16),
+    /// Pop the last card from hand and play it for free (used by PlayTopOfDraw).
+    /// Exhausts non-Power cards. Pushes TargetSelect if the card needs a target.
+    PlayLastDrawnFromHand,
     /// After an Attack card resolves: tick down player's BGWeakened and
     /// monsters' BGVulnerable. Only ticks powers that were present before
     /// the card was played. `vuln_mask` is a bitmask of monster indices
