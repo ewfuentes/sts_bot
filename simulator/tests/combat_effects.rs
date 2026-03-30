@@ -2686,6 +2686,80 @@ fn havoc_attack_with_vulnerable_and_weakened() {
     }
 }
 
+// ── On-exhaust power triggers (BGBerserk) ──
+
+#[test]
+fn berserk_deals_damage_to_all_on_exhaust() {
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![]),
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+    ];
+    let player_powers = vec![make_power("BGBerserk", 3)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { monsters, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(monsters[0].hp, 7, "First monster takes 3 damage from BGBerserk");
+        assert_eq!(monsters[1].hp, 5, "Second monster takes 3 damage from BGBerserk");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+// ── Start-of-turn power triggers ──
+
+#[test]
+fn demon_form_gains_strength_at_start_of_turn() {
+    let hand = vec![
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
+    let player_powers = vec![make_power("DemonForm", 1)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength");
+        assert!(strength.is_some(), "Should have Strength power");
+        assert_eq!(strength.unwrap().amount, 1, "Should have 1 Strength from DemonForm");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── End-of-turn power triggers ──
 
 #[test]
