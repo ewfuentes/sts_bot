@@ -808,12 +808,23 @@ impl GameState {
                 self.drain_effect_queue();
             }
             Action::EndTurn => {
+                // 1. End-of-turn power triggers (Metallicize, BGCombust, etc.)
+                if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
+                    let triggered = power_db::collect_triggered_effects(
+                        power_db::PowerTrigger::EndOfTurn,
+                        player_powers,
+                    );
+                    for effect in triggered {
+                        effect_queue.push_back((effect, None));
+                    }
+                }
+                self.drain_effect_queue();
+
+                // 2. Discard hand (ethereal → exhaust)
                 if let Screen::Combat {
-                    hand, draw_pile, discard_pile,
-                    player_block, player_energy, turn, effect_queue, ..
+                    hand, discard_pile, effect_queue, ..
                 } = self.current_screen_mut()
                 {
-                    // 1. Discard hand (ethereal → exhaust)
                     let hand_cards: Vec<HandCard> = hand.drain(..).collect();
                     for hc in hand_cards {
                         let is_ethereal = card_db::lookup(&hc.card.id)
@@ -828,18 +839,6 @@ impl GameState {
                 }
 
                 // Drain exhaust effects (FeelNoPain, DarkEmbrace, etc.)
-                self.drain_effect_queue();
-
-                // End-of-turn power triggers (Metallicize, BGCombust, etc.)
-                if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
-                    let triggered = power_db::collect_triggered_effects(
-                        power_db::PowerTrigger::EndOfTurn,
-                        player_powers,
-                    );
-                    for effect in triggered {
-                        effect_queue.push_back((effect, None));
-                    }
-                }
                 self.drain_effect_queue();
 
                 if let Screen::Combat {
