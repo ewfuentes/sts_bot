@@ -1,4 +1,4 @@
-use sts_simulator::{Action, Card, GameState, HandCard, Monster, Power, Screen};
+use sts_simulator::{Action, Card, GameState, HandCard, Monster, Power, Screen, TargetReason};
 
 fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
     Card {
@@ -1665,7 +1665,7 @@ fn havoc_plays_targeted_card_needs_target_select() {
 
     // Pick Jaw Worm
     state.apply(&Action::PickTarget {
-        card: make_card("BGStrike_R", 1, "ATTACK"),
+        reason: TargetReason::Card(make_card("BGStrike_R", 1, "ATTACK")),
         target_index: 0,
         target_name: "Jaw Worm".to_string(),
     });
@@ -2667,7 +2667,7 @@ fn havoc_attack_with_vulnerable_and_weakened() {
 
     // Pick Jaw Worm (index 0)
     state.apply(&Action::PickTarget {
-        card: make_card("BGStrike_R", 1, "ATTACK"),
+        reason: TargetReason::Card(make_card("BGStrike_R", 1, "ATTACK")),
         target_index: 0,
         target_name: "Jaw Worm".to_string(),
     });
@@ -2723,7 +2723,11 @@ fn juggernaut_deals_damage_on_block_gain() {
     assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }),
         "Expected TargetSelect screen for Juggernaut");
 
-    state.apply(&Action::PickTarget { card: make_card("", 0, ""), target_index: 0, target_name: "Jaw Worm".to_string() });
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Power(make_power("BGJuggernaut", 2)),
+        target_index: 0,
+        target_name: "Jaw Worm".to_string(),
+    });
 
     if let Screen::Combat { monsters, player_block, .. } = state.current_screen() {
         assert_eq!(*player_block, 1, "Should have 1 block from Defend");

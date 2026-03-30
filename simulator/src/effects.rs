@@ -101,7 +101,7 @@ pub enum Effect {
     PlayLastDrawnFromHand,
     /// Push a TargetSelect screen for the player to choose an enemy target,
     /// then deal fixed damage to the chosen target (used by BGJuggernaut).
-    DamageFixedTargetSelect(i16),
+    DamageFixedTargetSelect { amount: i16, reason: crate::screen::TargetReason },
     /// After an Attack card resolves: tick down player's BGWeakened and
     /// monsters' BGVulnerable. Only ticks powers that were present before
     /// the card was played. `vuln_mask` is a bitmask of monster indices

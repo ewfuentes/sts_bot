@@ -7,7 +7,7 @@ use crate::effects::{DamageSource, Effect, EffectTarget, HandFilter, HandSelectA
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
-use crate::screen::{EventOption, HandCard, Screen, ShopCard, ShopPotion, ShopRelic};
+use crate::screen::{EventOption, HandCard, Screen, ShopCard, ShopPotion, ShopRelic, TargetReason};
 use crate::types::{Card, Monster, Potion, Relic};
 
 fn deserialize_screen_stack<'de, D>(deserializer: D) -> Result<Vec<Screen>, D::Error>
@@ -1527,7 +1527,7 @@ impl GameState {
 
                     if has_target {
                         self.push_screen(Screen::TargetSelect {
-                            card: Some(card),
+                            reason: TargetReason::Card(card.clone()),
                             effects: all_effects,
                         });
                         return EffectResult::Paused;
@@ -1538,9 +1538,9 @@ impl GameState {
                     }
                 }
             }
-            Effect::DamageFixedTargetSelect(amount) => {
+            Effect::DamageFixedTargetSelect { amount, reason } => {
                 self.push_screen(Screen::TargetSelect {
-                    card: None,
+                    reason: reason.clone(),
                     effects: vec![Effect::DamageFixed(*amount)],
                 });
                 return EffectResult::Paused;
@@ -1752,7 +1752,7 @@ impl GameState {
                     Action::PickExhaust { card: card.clone(), choice_index: i as u8 }
                 }).collect()
             }
-            Screen::TargetSelect { card: Some(card), .. } => {
+            Screen::TargetSelect { reason, .. } => {
                 // Generate one PickTarget per live monster
                 if let Some(Screen::Combat { monsters, .. }) = self.screen.iter().rev()
                     .find(|s| matches!(s, Screen::Combat { .. }))
@@ -1760,7 +1760,7 @@ impl GameState {
                     monsters.iter().enumerate()
                         .filter(|(_, m)| !m.is_gone)
                         .map(|(i, m)| Action::PickTarget {
-                            card: card.clone(),
+                            reason: reason.clone(),
                             target_index: i as u8,
                             target_name: m.name.clone(),
                         })

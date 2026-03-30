@@ -6,6 +6,15 @@ use crate::effects::{Effect, HandSelectAction};
 use crate::map::MapNodeKind;
 use crate::types::{Card, Monster, Power};
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum TargetReason {
+    Card(Card),
+    Power(Power),
+    /// Placeholder used in static power_db templates; resolved to a concrete
+    /// variant by substitute_amount before the effect executes.
+    Pending,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Screen {
@@ -95,8 +104,7 @@ pub enum Screen {
         cards: Vec<(u8, Card)>,
     },
     TargetSelect {
-        #[serde(skip, default)]
-        card: Option<Card>,
+        reason: TargetReason,
         #[serde(skip)]
         effects: Vec<Effect>,
     },
