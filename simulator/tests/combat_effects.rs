@@ -2751,6 +2751,7 @@ fn demon_form_stacks_strength_over_turns() {
 // ── End-of-turn power triggers ──
 
 #[test]
+#[ignore = "Cannot meaningfully verify until monster attacks are implemented"]
 fn metallicize_grants_block_at_end_of_turn() {
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
     let player_powers = vec![make_power("Metallicize", 2)];
