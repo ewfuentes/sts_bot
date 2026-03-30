@@ -2760,6 +2760,59 @@ fn demon_form_gains_strength_at_start_of_turn() {
     }
 }
 
+#[test]
+fn demon_form_stacks_strength_over_turns() {
+    let hand = vec![
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
+    let player_powers = vec![make_power("DemonForm", 1)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+                make_card("BGStrike_R", 1, "ATTACK"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // End turn 1 → start turn 2: gain 1 Strength
+    state.apply(&Action::EndTurn);
+    // End turn 2 → start turn 3: gain 1 more Strength (total 2)
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 2, "Should have 2 Strength after 2 turns of DemonForm");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── End-of-turn power triggers ──
 
 #[test]
