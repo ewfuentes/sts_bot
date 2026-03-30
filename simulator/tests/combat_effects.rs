@@ -2853,19 +2853,20 @@ fn demon_form_stacks_strength_over_turns() {
 // ── End-of-turn power triggers ──
 
 #[test]
-#[ignore = "Cannot meaningfully verify until monster attacks are implemented"]
 fn metallicize_grants_block_at_end_of_turn() {
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
-    let player_powers = vec![make_power("Metallicize", 2)];
+    let player_powers = vec![
+        make_power("Metallicize", 2),
+        make_power("Barricade", 1),
+    ];
     let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
 
     state.apply(&Action::EndTurn);
 
     if let Screen::Combat { player_block, .. } = state.current_screen() {
-        // Metallicize grants 2 block at end of turn, but block resets to 0
-        // at start of next turn. Metallicize block protects during the
-        // monster turn (not yet implemented).
-        assert_eq!(*player_block, 0, "Block resets at start of next turn");
+        // Metallicize grants 2 block at end of turn. Barricade prevents
+        // block from decaying at start of next turn, so we can verify it.
+        assert_eq!(*player_block, 2, "Metallicize should grant 2 block");
     } else {
         panic!("Expected Combat screen");
     }
