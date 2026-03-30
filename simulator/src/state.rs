@@ -818,7 +818,6 @@ impl GameState {
                         effect_queue.push_back((effect, None));
                     }
                 }
-                self.drain_effect_queue();
 
                 // 2. Discard hand (ethereal → exhaust)
                 if let Screen::Combat {
@@ -838,7 +837,8 @@ impl GameState {
                     }
                 }
 
-                // Drain exhaust effects (FeelNoPain, DarkEmbrace, etc.)
+                // Drain end-of-turn + exhaust effects (Metallicize, BGCombust,
+                // then FeelNoPain, DarkEmbrace from ethereal exhausts, etc.)
                 self.drain_effect_queue();
 
                 if let Screen::Combat {
