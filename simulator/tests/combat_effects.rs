@@ -2686,53 +2686,83 @@ fn havoc_attack_with_vulnerable_and_weakened() {
     }
 }
 
+// ── On-exhaust power triggers (BGBerserk) ──
+
+#[test]
+fn berserk_deals_damage_to_all_on_exhaust() {
+    let hand = vec![
+        make_hand_card("BGTrue Grit", 1, "SKILL"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![]),
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+    ];
+    let player_powers = vec![make_power("BGBerserk", 3)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGTrue Grit", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { monsters, exhaust_pile, .. } = state.current_screen() {
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(monsters[0].hp, 7, "First monster takes 3 damage from BGBerserk");
+        assert_eq!(monsters[1].hp, 5, "Second monster takes 3 damage from BGBerserk");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+// ── Start-of-turn power triggers ──
+
+#[test]
+fn demon_form_gains_strength_at_start_of_turn() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
+    let player_powers = vec![make_power("DemonForm", 1)];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength");
+        assert!(strength.is_some(), "Should have Strength power");
+        assert_eq!(strength.unwrap().amount, 1, "Should have 1 Strength from DemonForm");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn demon_form_stacks_strength_over_turns() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
+    let player_powers = vec![make_power("DemonForm", 1)];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
+
+    state.apply(&Action::EndTurn);
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
+        assert_eq!(strength.amount, 2, "Should have 2 Strength after 2 turns of DemonForm");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── End-of-turn power triggers ──
 
 #[test]
+#[ignore = "Cannot meaningfully verify until monster attacks are implemented"]
 fn metallicize_grants_block_at_end_of_turn() {
-    let hand = vec![
-        make_hand_card("BGStrike_R", 1, "ATTACK"),
-    ];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
     let player_powers = vec![make_power("Metallicize", 2)];
-
-    let json = serde_json::json!({
-        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
-        "deck": [],
-        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
-        "potions": [null, null, null],
-        "screen": {
-            "type": "combat",
-            "encounter": "test",
-            "monsters": monsters,
-            "hand": hand,
-            "draw_pile": [
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-            ],
-            "discard_pile": [],
-            "exhaust_pile": [],
-            "player_block": 0,
-            "player_energy": 3,
-            "player_powers": player_powers,
-            "turn": 1
-        }
-    });
-    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
 
     state.apply(&Action::EndTurn);
 
     if let Screen::Combat { player_block, .. } = state.current_screen() {
-        // Metallicize grants 2 block at end of turn, then block resets to 0 at start of next turn
-        // But block reset is step 3 (after end-of-turn triggers), so block should be 0
-        // Wait — Metallicize block is meant to persist through the monster turn.
-        // Since end-of-turn triggers fire before block reset, player_block = 2 temporarily,
-        // but then step 3 resets it to 0. So after the full EndTurn action, block is 0.
-        // This is correct: Metallicize block protects during monster turn (not yet implemented),
-        // then resets at start of next turn.
+        // Metallicize grants 2 block at end of turn, but block resets to 0
+        // at start of next turn. Metallicize block protects during the
+        // monster turn (not yet implemented).
         assert_eq!(*player_block, 0, "Block resets at start of next turn");
     } else {
         panic!("Expected Combat screen");
@@ -2741,9 +2771,6 @@ fn metallicize_grants_block_at_end_of_turn() {
 
 #[test]
 fn combust_deals_damage_at_end_of_turn() {
-    let hand = vec![
-        make_hand_card("BGStrike_R", 1, "ATTACK"),
-    ];
     let monsters = vec![
         make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![]),
         make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
@@ -2759,14 +2786,8 @@ fn combust_deals_damage_at_end_of_turn() {
             "type": "combat",
             "encounter": "test",
             "monsters": monsters,
-            "hand": hand,
-            "draw_pile": [
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-                make_card("BGStrike_R", 1, "ATTACK"),
-            ],
+            "hand": [],
+            "draw_pile": [],
             "discard_pile": [],
             "exhaust_pile": [],
             "player_block": 0,

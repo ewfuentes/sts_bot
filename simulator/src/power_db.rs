@@ -6,6 +6,7 @@ pub enum PowerTrigger {
     OnDraw { card_type: crate::card_db::CardType },
     OnShuffle,
     EndOfTurn,
+    StartOfTurn,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +71,20 @@ static POWERS: &[PowerInfo] = &[
             effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
         }],
     },
+    PowerInfo {
+        id: "BGBerserk",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::OnExhaust,
+            effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+        }],
+    },
+    PowerInfo {
+        id: "DemonForm",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::StartOfTurn,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+        }],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static PowerInfo> {
@@ -97,11 +112,14 @@ pub fn collect_triggered_effects(
     results
 }
 
-fn substitute_amount(effect: &Effect, amount: i32) -> Effect {
+fn substitute_amount(effect: &Effect, amt: i32) -> Effect {
     match effect {
-        Effect::Block(0) => Effect::Block(amount as i16),
-        Effect::Draw(0) => Effect::Draw(amount as u8),
-        Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amount as i16),
+        Effect::Block(0) => Effect::Block(amt as i16),
+        Effect::Draw(0) => Effect::Draw(amt as u8),
+        Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amt as i16),
+        Effect::ApplyPower { target, power_id, amount: 0 } => Effect::ApplyPower {
+            target: *target, power_id, amount: amt as i16,
+        },
         other => other.clone(),
     }
 }

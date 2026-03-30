@@ -845,24 +845,33 @@ impl GameState {
                     player_block, player_energy, turn, effect_queue, ..
                 } = self.current_screen_mut()
                 {
-                    // 2. [STUB] Monster turns would go here
+                    // [STUB] Monster turns would go here
 
-                    // 3. Player block → 0
+                    // Start of next turn:
+                    // 1. Reset energy and block
                     *player_block = 0;
-
-                    // 4. [STUB] Turn-start power triggers would go here
-
-                    // 5-6. Draw 5 cards (reshuffle if needed)
-                    effect_queue.push_back((Effect::Draw(5), None));
-
-                    // 7. Energy → 3
                     *player_energy = 3;
 
-                    // 8. Turn += 1
+                    // 2. Draw 5 cards (reshuffle if needed)
+                    effect_queue.push_back((Effect::Draw(5), None));
+
+                    // 3. Turn += 1
                     *turn += 1;
                 }
 
                 // Drain draw effects (and any on-draw/on-shuffle triggers)
+                self.drain_effect_queue();
+
+                // 4. Start-of-turn power triggers (DemonForm, etc.)
+                if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
+                    let triggered = power_db::collect_triggered_effects(
+                        power_db::PowerTrigger::StartOfTurn,
+                        player_powers,
+                    );
+                    for effect in triggered {
+                        effect_queue.push_back((effect, None));
+                    }
+                }
                 self.drain_effect_queue();
             }
             Action::PickHandCard { choice_index, .. } => {
