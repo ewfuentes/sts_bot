@@ -7,6 +7,7 @@ pub enum PowerTrigger {
     OnShuffle,
     EndOfTurn,
     StartOfTurn,
+    OnGainBlock,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +107,14 @@ static POWERS: &[PowerInfo] = &[
         modifiers: &[PowerModifier::PreventBlockDecay],
     },
     PowerInfo {
+        id: "BGJuggernaut",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::OnGainBlock,
+            effects: &[Effect::DamageFixedTargetSelect(0)],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
         id: "NoDrawPower",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::EndOfTurn,
@@ -154,6 +163,7 @@ fn substitute_amount(effect: &Effect, amt: i32) -> Effect {
         Effect::Block(0) => Effect::Block(amt as i16),
         Effect::Draw(0) => Effect::Draw(amt as u8),
         Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amt as i16),
+        Effect::DamageFixedTargetSelect(0) => Effect::DamageFixedTargetSelect(amt as i16),
         Effect::ApplyPower { target, power_id, amount: 0 } => Effect::ApplyPower {
             target: *target, power_id, amount: amt as i16,
         },

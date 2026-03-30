@@ -1113,13 +1113,35 @@ impl GameState {
                 }
             }
             Effect::Block(amount) => {
-                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
-                    *player_block += *amount as u16;
+                if let Some(Screen::Combat { player_block, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    let before = *player_block;
+                    *player_block = (*player_block + *amount as u16).min(MAX_BLOCK);
+                    let gained = *player_block - before;
+                    if gained > 0 {
+                        let triggered = power_db::collect_triggered_effects(
+                            power_db::PowerTrigger::OnGainBlock,
+                            player_powers,
+                        );
+                        for effect in triggered {
+                            effect_queue.push_back((effect, None));
+                        }
+                    }
                 }
             }
             Effect::DoubleBlock => {
-                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
-                    *player_block *= 2;
+                if let Some(Screen::Combat { player_block, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    let before = *player_block;
+                    *player_block = (*player_block * 2).min(MAX_BLOCK);
+                    let gained = *player_block - before;
+                    if gained > 0 {
+                        let triggered = power_db::collect_triggered_effects(
+                            power_db::PowerTrigger::OnGainBlock,
+                            player_powers,
+                        );
+                        for effect in triggered {
+                            effect_queue.push_back((effect, None));
+                        }
+                    }
                 }
             }
             Effect::GainTemporaryStrength(amount) => {
@@ -1515,6 +1537,13 @@ impl GameState {
                         }
                     }
                 }
+            }
+            Effect::DamageFixedTargetSelect(amount) => {
+                self.push_screen(Screen::TargetSelect {
+                    card: None,
+                    effects: vec![Effect::DamageFixed(*amount)],
+                });
+                return EffectResult::Paused;
             }
             Effect::Custom(_id) => {
                 // Not yet implemented
@@ -2031,6 +2060,7 @@ fn calculate_damage(base: i16, attacker_powers: &[crate::types::Power], defender
 
 /// Maximum value for the Strength power.
 const MAX_STRENGTH: i32 = 8;
+const MAX_BLOCK: u16 = 20;
 
 /// Add or stack a power on a creature's power list.
 /// Strength is capped at MAX_STRENGTH.
