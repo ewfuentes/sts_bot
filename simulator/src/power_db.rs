@@ -17,9 +17,16 @@ pub struct TriggeredEffect {
     pub effects: &'static [Effect],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerModifier {
+    PreventBlockDecay,
+    PreventDraw,
+}
+
 pub struct PowerInfo {
     pub id: &'static str,
     pub triggers: &'static [TriggeredEffect],
+    pub modifiers: &'static [PowerModifier],
 }
 
 static POWERS: &[PowerInfo] = &[
@@ -27,56 +34,63 @@ static POWERS: &[PowerInfo] = &[
         id: "FeelNoPain",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
-            effects: &[Effect::Block(0)], // amount substituted at runtime
+            effects: &[Effect::Block(0)],
         }],
+        modifiers: &[],
     },
     PowerInfo {
         id: "BGDarkEmbrace",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
-            effects: &[Effect::Draw(0)], // amount substituted at runtime
+            effects: &[Effect::Draw(0)],
         }],
+        modifiers: &[],
     },
     PowerInfo {
         id: "Evolve",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
-            effects: &[Effect::Draw(0)], // amount substituted at runtime
+            effects: &[Effect::Draw(0)],
         }],
+        modifiers: &[],
     },
     PowerInfo {
         id: "FireBreathing",
         triggers: &[
             TriggeredEffect {
                 trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
-                effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+                effects: &[Effect::DamageFixedAll(0)],
             },
             TriggeredEffect {
                 trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Curse },
-                effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+                effects: &[Effect::DamageFixedAll(0)],
             },
         ],
+        modifiers: &[],
     },
     PowerInfo {
         id: "Metallicize",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::EndOfTurn,
-            effects: &[Effect::Block(0)], // amount substituted at runtime
+            effects: &[Effect::Block(0)],
         }],
+        modifiers: &[],
     },
     PowerInfo {
         id: "BGCombust",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::EndOfTurn,
-            effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+            effects: &[Effect::DamageFixedAll(0)],
         }],
+        modifiers: &[],
     },
     PowerInfo {
         id: "BGBerserk",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
-            effects: &[Effect::DamageFixedAll(0)], // amount substituted at runtime
+            effects: &[Effect::DamageFixedAll(0)],
         }],
+        modifiers: &[],
     },
     PowerInfo {
         id: "DemonForm",
@@ -84,11 +98,34 @@ static POWERS: &[PowerInfo] = &[
             trigger: PowerTrigger::StartOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
         }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "Barricade",
+        triggers: &[],
+        modifiers: &[PowerModifier::PreventBlockDecay],
+    },
+    PowerInfo {
+        id: "NoDrawPower",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::EndOfTurn,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "NoDrawPower", amount: -1 }],
+        }],
+        modifiers: &[PowerModifier::PreventDraw],
     },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static PowerInfo> {
     POWERS.iter().find(|p| p.id == id)
+}
+
+/// Check whether any active power has the given modifier.
+pub fn has_modifier(modifier: PowerModifier, powers: &[crate::types::Power]) -> bool {
+    powers.iter().any(|power| {
+        lookup(&power.id)
+            .map(|info| info.modifiers.contains(&modifier))
+            .unwrap_or(false)
+    })
 }
 
 /// Collect all effects that should fire for the given trigger,

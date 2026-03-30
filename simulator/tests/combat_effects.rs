@@ -2686,6 +2686,108 @@ fn havoc_attack_with_vulnerable_and_weakened() {
     }
 }
 
+// ── Power modifiers ──
+
+#[test]
+fn barricade_prevents_block_decay() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let player_powers = vec![make_power("Barricade", 1)];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 5, player_powers);
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 5, "Block should not decay with Barricade");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn no_draw_power_prevents_draws() {
+    let hand = vec![
+        make_hand_card("BGShrug It Off", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let player_powers = vec![make_power("NoDrawPower", 1)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Shrug It Off: Block(2), Draw(1) — but NoDrawPower should prevent the draw
+    state.apply(&play_action("BGShrug It Off", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { hand, draw_pile, .. } = state.current_screen() {
+        assert!(hand.is_empty(), "Draw should be prevented by NoDrawPower");
+        assert_eq!(draw_pile.len(), 1, "Card should remain in draw pile");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn no_draw_power_expires_at_end_of_turn() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let player_powers = vec![make_power("NoDrawPower", 1)];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [
+                make_card("BGStrike_R", 1, "ATTACK"),
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": player_powers,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, hand, .. } = state.current_screen() {
+        // NoDrawPower should be removed at end of turn
+        assert!(!player_powers.iter().any(|p| p.id == "NoDrawPower"),
+            "NoDrawPower should be removed at end of turn");
+        // Draw 5 happens after NoDrawPower removal — but NoDrawPower fires
+        // at EndOfTurn (before discard), and draw happens at start of next turn.
+        // Since NoDrawPower is removed during EndOfTurn triggers, the draw should work.
+        assert_eq!(hand.len(), 1, "Should draw after NoDrawPower expires");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
 // ── On-exhaust power triggers (BGBerserk) ──
 
 #[test]
@@ -2751,19 +2853,20 @@ fn demon_form_stacks_strength_over_turns() {
 // ── End-of-turn power triggers ──
 
 #[test]
-#[ignore = "Cannot meaningfully verify until monster attacks are implemented"]
 fn metallicize_grants_block_at_end_of_turn() {
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
-    let player_powers = vec![make_power("Metallicize", 2)];
+    let player_powers = vec![
+        make_power("Metallicize", 2),
+        make_power("Barricade", 1),
+    ];
     let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
 
     state.apply(&Action::EndTurn);
 
     if let Screen::Combat { player_block, .. } = state.current_screen() {
-        // Metallicize grants 2 block at end of turn, but block resets to 0
-        // at start of next turn. Metallicize block protects during the
-        // monster turn (not yet implemented).
-        assert_eq!(*player_block, 0, "Block resets at start of next turn");
+        // Metallicize grants 2 block at end of turn. Barricade prevents
+        // block from decaying at start of next turn, so we can verify it.
+        assert_eq!(*player_block, 2, "Metallicize should grant 2 block");
     } else {
         panic!("Expected Combat screen");
     }

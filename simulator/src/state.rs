@@ -842,14 +842,16 @@ impl GameState {
                 self.drain_effect_queue();
 
                 if let Screen::Combat {
-                    player_block, player_energy, turn, effect_queue, ..
+                    player_block, player_energy, player_powers, turn, effect_queue, ..
                 } = self.current_screen_mut()
                 {
                     // [STUB] Monster turns would go here
 
                     // Start of next turn:
                     // 1. Reset energy and block
-                    *player_block = 0;
+                    if !power_db::has_modifier(power_db::PowerModifier::PreventBlockDecay, player_powers) {
+                        *player_block = 0;
+                    }
                     *player_energy = 3;
 
                     // 2. Draw 5 cards (reshuffle if needed)
@@ -1420,6 +1422,9 @@ impl GameState {
             }
             Effect::DrawOneCard => {
                 if let Some(Screen::Combat { draw_pile, discard_pile, hand, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    if power_db::has_modifier(power_db::PowerModifier::PreventDraw, player_powers) {
+                        return EffectResult::Continue;
+                    }
                     if draw_pile.is_empty() && !discard_pile.is_empty() {
                         // Shuffle first, then retry the draw
                         effect_queue.push_front((Effect::DrawOneCard, None));
