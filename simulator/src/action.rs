@@ -89,7 +89,7 @@ pub enum Action {
         choice_index: u8,
     },
     PickTarget {
-        card: Card,
+        reason: crate::screen::TargetReason,
         target_index: u8,
         target_name: String,
     },

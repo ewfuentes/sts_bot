@@ -7,7 +7,7 @@ use crate::effects::{DamageSource, Effect, EffectTarget, HandFilter, HandSelectA
 use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
-use crate::screen::{EventOption, HandCard, Screen, ShopCard, ShopPotion, ShopRelic};
+use crate::screen::{EventOption, HandCard, Screen, ShopCard, ShopPotion, ShopRelic, TargetReason};
 use crate::types::{Card, Monster, Potion, Relic};
 
 fn deserialize_screen_stack<'de, D>(deserializer: D) -> Result<Vec<Screen>, D::Error>
@@ -1113,13 +1113,35 @@ impl GameState {
                 }
             }
             Effect::Block(amount) => {
-                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
-                    *player_block += *amount as u16;
+                if let Some(Screen::Combat { player_block, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    let before = *player_block;
+                    *player_block = (*player_block + *amount as u16).min(MAX_BLOCK);
+                    let gained = *player_block - before;
+                    if gained > 0 {
+                        let triggered = power_db::collect_triggered_effects(
+                            power_db::PowerTrigger::OnGainBlock,
+                            player_powers,
+                        );
+                        for effect in triggered {
+                            effect_queue.push_back((effect, None));
+                        }
+                    }
                 }
             }
             Effect::DoubleBlock => {
-                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
-                    *player_block *= 2;
+                if let Some(Screen::Combat { player_block, player_powers, effect_queue, .. }) = self.find_combat_mut() {
+                    let before = *player_block;
+                    *player_block = (*player_block * 2).min(MAX_BLOCK);
+                    let gained = *player_block - before;
+                    if gained > 0 {
+                        let triggered = power_db::collect_triggered_effects(
+                            power_db::PowerTrigger::OnGainBlock,
+                            player_powers,
+                        );
+                        for effect in triggered {
+                            effect_queue.push_back((effect, None));
+                        }
+                    }
                 }
             }
             Effect::GainTemporaryStrength(amount) => {
@@ -1505,7 +1527,7 @@ impl GameState {
 
                     if has_target {
                         self.push_screen(Screen::TargetSelect {
-                            card: Some(card),
+                            reason: TargetReason::Card(card.clone()),
                             effects: all_effects,
                         });
                         return EffectResult::Paused;
@@ -1515,6 +1537,13 @@ impl GameState {
                         }
                     }
                 }
+            }
+            Effect::DamageFixedTargetSelect { amount, reason } => {
+                self.push_screen(Screen::TargetSelect {
+                    reason: reason.clone(),
+                    effects: vec![Effect::DamageFixed(*amount)],
+                });
+                return EffectResult::Paused;
             }
             Effect::Custom(_id) => {
                 // Not yet implemented
@@ -1723,7 +1752,7 @@ impl GameState {
                     Action::PickExhaust { card: card.clone(), choice_index: i as u8 }
                 }).collect()
             }
-            Screen::TargetSelect { card: Some(card), .. } => {
+            Screen::TargetSelect { reason, .. } => {
                 // Generate one PickTarget per live monster
                 if let Some(Screen::Combat { monsters, .. }) = self.screen.iter().rev()
                     .find(|s| matches!(s, Screen::Combat { .. }))
@@ -1731,7 +1760,7 @@ impl GameState {
                     monsters.iter().enumerate()
                         .filter(|(_, m)| !m.is_gone)
                         .map(|(i, m)| Action::PickTarget {
-                            card: card.clone(),
+                            reason: reason.clone(),
                             target_index: i as u8,
                             target_name: m.name.clone(),
                         })
@@ -2031,6 +2060,7 @@ fn calculate_damage(base: i16, attacker_powers: &[crate::types::Power], defender
 
 /// Maximum value for the Strength power.
 const MAX_STRENGTH: i32 = 8;
+const MAX_BLOCK: u16 = 20;
 
 /// Add or stack a power on a creature's power list.
 /// Strength is capped at MAX_STRENGTH.

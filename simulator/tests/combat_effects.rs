@@ -1,4 +1,4 @@
-use sts_simulator::{Action, Card, GameState, HandCard, Monster, Power, Screen};
+use sts_simulator::{Action, Card, GameState, HandCard, Monster, Power, Screen, TargetReason};
 
 fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
     Card {
@@ -1665,7 +1665,7 @@ fn havoc_plays_targeted_card_needs_target_select() {
 
     // Pick Jaw Worm
     state.apply(&Action::PickTarget {
-        card: make_card("BGStrike_R", 1, "ATTACK"),
+        reason: TargetReason::Card(make_card("BGStrike_R", 1, "ATTACK")),
         target_index: 0,
         target_name: "Jaw Worm".to_string(),
     });
@@ -2667,7 +2667,7 @@ fn havoc_attack_with_vulnerable_and_weakened() {
 
     // Pick Jaw Worm (index 0)
     state.apply(&Action::PickTarget {
-        card: make_card("BGStrike_R", 1, "ATTACK"),
+        reason: TargetReason::Card(make_card("BGStrike_R", 1, "ATTACK")),
         target_index: 0,
         target_name: "Jaw Worm".to_string(),
     });
@@ -2683,6 +2683,77 @@ fn havoc_attack_with_vulnerable_and_weakened() {
         assert_eq!(player_powers.iter().find(|p| p.id == "BGWeakened").unwrap().amount, 1);
     } else {
         panic!("Expected Combat screen");
+    }
+}
+
+// ── Block cap and OnGainBlock triggers ──
+
+#[test]
+fn block_capped_at_20() {
+    // BGDefend_R grants Block(1). Starting at 20, should stay at 20.
+    let hand = vec![
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 20, vec![]);
+
+    state.apply(&play_action("BGDefend_R", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 20, "Block should cap at 20");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn juggernaut_deals_damage_on_block_gain() {
+    let hand = vec![
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![]),
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+    ];
+    let player_powers = vec![make_power("BGJuggernaut", 2)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGDefend_R", 1, "SKILL", 0, None));
+
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }),
+        "Expected TargetSelect screen for Juggernaut");
+
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Power(make_power("BGJuggernaut", 2)),
+        target_index: 0,
+        target_name: "Jaw Worm".to_string(),
+    });
+
+    if let Screen::Combat { monsters, player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 1, "Should have 1 block from Defend");
+        assert_eq!(monsters[0].hp, 8, "Target should take 2 damage from Juggernaut");
+        assert_eq!(monsters[1].hp, 8, "Non-target should be untouched");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn juggernaut_does_not_trigger_at_block_cap() {
+    let hand = vec![
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let player_powers = vec![make_power("BGJuggernaut", 2)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 20, player_powers);
+
+    state.apply(&play_action("BGDefend_R", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, monsters, .. } = state.current_screen() {
+        assert_eq!(*player_block, 20, "Block stays at cap");
+        assert_eq!(monsters[0].hp, 10, "No Juggernaut damage");
+    } else {
+        panic!("Expected Combat screen, not TargetSelect");
     }
 }
 

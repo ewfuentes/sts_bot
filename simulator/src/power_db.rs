@@ -7,6 +7,7 @@ pub enum PowerTrigger {
     OnShuffle,
     EndOfTurn,
     StartOfTurn,
+    OnGainBlock,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +107,14 @@ static POWERS: &[PowerInfo] = &[
         modifiers: &[PowerModifier::PreventBlockDecay],
     },
     PowerInfo {
+        id: "BGJuggernaut",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::OnGainBlock,
+            effects: &[Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending }],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
         id: "NoDrawPower",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::EndOfTurn,
@@ -140,7 +149,7 @@ pub fn collect_triggered_effects(
             for te in info.triggers {
                 if te.trigger == trigger {
                     for effect in te.effects {
-                        results.push(substitute_amount(effect, power.amount));
+                        results.push(substitute_amount(effect, power));
                     }
                 }
             }
@@ -149,11 +158,18 @@ pub fn collect_triggered_effects(
     results
 }
 
-fn substitute_amount(effect: &Effect, amt: i32) -> Effect {
+fn substitute_amount(effect: &Effect, power: &crate::types::Power) -> Effect {
+    let amt = power.amount;
     match effect {
         Effect::Block(0) => Effect::Block(amt as i16),
         Effect::Draw(0) => Effect::Draw(amt as u8),
         Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amt as i16),
+        Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending } => {
+            Effect::DamageFixedTargetSelect {
+                amount: amt as i16,
+                reason: crate::screen::TargetReason::Power(power.clone()),
+            }
+        }
         Effect::ApplyPower { target, power_id, amount: 0 } => Effect::ApplyPower {
             target: *target, power_id, amount: amt as i16,
         },
