@@ -3243,3 +3243,67 @@ fn dark_embrace_draws_on_exhaust() {
         panic!("Expected Combat screen");
     }
 }
+
+// ── RepeatAttack (BGDoubleAttack) ──
+
+#[test]
+fn double_attack_repeats_strike_damage() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_powers, .. } = state.current_screen() {
+        // Strike deals 1 damage, doubled = 2 total damage: 8 - 2 = 6
+        assert_eq!(monsters[0].hp, 6);
+        // Power should be consumed
+        assert!(player_powers.iter().all(|p| p.id != "BGDoubleAttack" || p.amount == 0));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_attack_does_not_repeat_skills() {
+    let hand = vec![make_hand_card("BGDefend_R", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGDefend_R", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, player_powers, .. } = state.current_screen() {
+        // Defend gives 1 block, should NOT be doubled
+        assert_eq!(*player_block, 1);
+        // Power should still be active
+        assert!(player_powers.iter().any(|p| p.id == "BGDoubleAttack" && p.amount == 1));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_attack_stacks_repeat_multiple_attacks() {
+    let hand = vec![
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 2)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    // Play first strike: doubled, 2 damage total
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+    // Play second strike: doubled, 2 damage total
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_powers, .. } = state.current_screen() {
+        // 8 - 2 - 2 = 4
+        assert_eq!(monsters[0].hp, 4);
+        assert!(player_powers.iter().all(|p| p.id != "BGDoubleAttack" || p.amount == 0));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
