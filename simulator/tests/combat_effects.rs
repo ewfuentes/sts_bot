@@ -2148,13 +2148,11 @@ fn whirlwind_presents_energy_choices() {
     state.apply(&play_action("BGWhirlwind", -1, "ATTACK", 0, None));
 
     // Should present 4 choices: Spend 0, 1, 2, 3
-    if let Screen::ChoiceSelect { choices, .. } = state.current_screen() {
-        assert_eq!(choices.len(), 4);
-        assert_eq!(choices[0].0, "Spend 0");
-        assert_eq!(choices[3].0, "Spend 3");
-    } else {
-        panic!("Expected ChoiceSelect, got {:?}", state.current_screen());
-    }
+    assert!(matches!(state.current_screen(), Screen::XCostSelect { .. }));
+    let actions = state.available_actions();
+    assert_eq!(actions.len(), 4);
+    assert!(matches!(&actions[0], Action::PickChoice { label, choice_index: 0 } if label == "Spend 0"));
+    assert!(matches!(&actions[3], Action::PickChoice { label, choice_index: 3 } if label == "Spend 3"));
 }
 
 #[test]
@@ -3239,6 +3237,117 @@ fn dark_embrace_draws_on_exhaust() {
         // Drew 1 card from DarkEmbrace
         assert_eq!(hand.len(), 1);
         assert_eq!(draw_pile.len(), 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+// ── RepeatAttack (BGDoubleAttack) ──
+
+#[test]
+fn double_attack_repeats_strike_damage() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_powers, .. } = state.current_screen() {
+        // Strike deals 1 damage, doubled = 2 total damage: 8 - 2 = 6
+        assert_eq!(monsters[0].hp, 6);
+        // Power should be consumed
+        assert!(player_powers.iter().all(|p| p.id != "BGDoubleAttack" || p.amount == 0));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_attack_does_not_repeat_skills() {
+    let hand = vec![make_hand_card("BGDefend_R", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGDefend_R", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, player_powers, .. } = state.current_screen() {
+        // Defend gives 1 block, should NOT be doubled
+        assert_eq!(*player_block, 1);
+        // Power should still be active
+        assert!(player_powers.iter().any(|p| p.id == "BGDoubleAttack" && p.amount == 1));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_attack_stacks_repeat_multiple_attacks() {
+    let hand = vec![
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 2)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    // Play first strike: doubled, 2 damage total
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+    // Play second strike: doubled, 2 damage total
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { monsters, player_powers, .. } = state.current_screen() {
+        // 8 - 2 - 2 = 4
+        assert_eq!(monsters[0].hp, 4);
+        assert!(player_powers.iter().all(|p| p.id != "BGDoubleAttack" || p.amount == 0));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_attack_expires_at_end_of_turn() {
+    let hand = vec![make_hand_card("BGDefend_R", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    // Don't play any attacks, just end the turn
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(
+            player_powers.iter().all(|p| p.id != "BGDoubleAttack"),
+            "BGDoubleAttack should be removed at end of turn"
+        );
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_attack_with_whirlwind_doubles_xcost_effects() {
+    let hand = vec![make_hand_card("BGWhirlwind", -1, "ATTACK")];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![]),
+        make_monster("BGGreenLouse", "Louse", 10, 0, vec![]),
+    ];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGWhirlwind", -1, "ATTACK", 0, None));
+    // Spend 2 energy: 2 hits of DamageAll(1), doubled by RepeatAttack = 4 hits
+    state.apply(&Action::PickChoice { label: "Spend 2".to_string(), choice_index: 2 });
+
+    if let Screen::Combat { monsters, player_energy, player_powers, .. } = state.current_screen() {
+        // Energy deducted once: 3 - 2 = 1
+        assert_eq!(*player_energy, 1);
+        // Each monster takes 4 damage (2 hits x 2 from RepeatAttack)
+        assert_eq!(monsters[0].hp, 16); // 20 - 4
+        assert_eq!(monsters[1].hp, 6);  // 10 - 4
+        // Power consumed
+        assert!(player_powers.iter().all(|p| p.id != "BGDoubleAttack" || p.amount == 0));
     } else {
         panic!("Expected Combat screen");
     }

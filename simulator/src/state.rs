@@ -766,36 +766,15 @@ impl GameState {
                         *player_energy = player_energy.saturating_sub(cost as u8);
                     }
 
-                    // Queue card effects with target
-                    let effects = info
-                        .map(|i| i.effective_effects(card.upgraded))
-                        .unwrap_or(&[]);
-                    for effect in effects {
-                        effect_queue.push_back((effect.clone(), target));
-                    }
-
-                    // Tick down Weak/Vulnerable after an Attack card resolves.
-                    // Snapshot whether these powers exist now, so we don't tick
-                    // down stacks that the card itself applies.
-                    let is_attack = info
-                        .map(|i| i.card_type == card_db::CardType::Attack)
-                        .unwrap_or(card.card_type == "ATTACK");
-                    if is_attack {
-                        effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));
-                    }
+                    let info = info.expect("card not found in card_db");
+                    let effects = info.effective_effects(card.upgraded);
+                    play_card_effects(effects, info.card_type, target, player_powers, monsters, effect_queue);
 
                     // Queue disposition as the final effect (after all card effects).
                     // Powers are consumed — no disposition needed.
-                    let is_power = info
-                        .map(|i| i.card_type == card_db::CardType::Power)
-                        .unwrap_or(card.card_type == "POWER");
-                    if !is_power {
-                        let does_exhaust = info
-                            .map(|i| i.does_exhaust(card.upgraded))
-                            .unwrap_or(false);
-                        let does_rebound = info
-                            .map(|i| i.rebound)
-                            .unwrap_or(false);
+                    if info.card_type != card_db::CardType::Power {
+                        let does_exhaust = info.does_exhaust(card.upgraded);
+                        let does_rebound = info.rebound;
                         effect_queue.push_back((Effect::DisposeCard {
                             card,
                             exhaust: does_exhaust,
@@ -898,23 +877,39 @@ impl GameState {
             }
             Action::PickChoice { choice_index, .. } => {
                 let idx = *choice_index as usize;
-                if let Screen::ChoiceSelect { choices, target_index, energy_costs } = self.current_screen() {
+                if let Screen::ChoiceSelect { choices, target_index } = self.current_screen() {
                     if idx < choices.len() {
                         let effects = choices[idx].1.clone();
                         let target = *target_index;
-                        let energy_cost = energy_costs.get(idx).copied();
                         self.pop_screen();
-                        // Deduct energy if this choice has an energy cost (XCost)
-                        if let Some(cost) = energy_cost {
-                            if let Some(Screen::Combat { player_energy, .. }) = self.find_combat_mut() {
-                                *player_energy = player_energy.saturating_sub(cost);
-                            }
-                        }
                         // Push chosen effects to the front of the queue
                         if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
                             for effect in effects.into_iter().rev() {
                                 effect_queue.push_front((effect, target));
                             }
+                        }
+                        self.drain_effect_queue();
+                    }
+                } else if let Screen::XCostSelect { per_energy, bonus, card_type, target, max_energy } = self.current_screen() {
+                    let spend = idx as u8;
+                    if spend <= *max_energy {
+                        let reps = (spend as i16 + bonus).max(0);
+                        let mut resolved_effects = Vec::new();
+                        for _ in 0..reps {
+                            for e in per_energy.iter() {
+                                resolved_effects.push(e.clone());
+                            }
+                        }
+                        let card_type = *card_type;
+                        let target = *target;
+                        self.pop_screen();
+                        // Deduct energy
+                        if let Some(Screen::Combat { player_energy, .. }) = self.find_combat_mut() {
+                            *player_energy = player_energy.saturating_sub(spend);
+                        }
+                        // Play the resolved effects through play_card_effects
+                        if let Some(Screen::Combat { player_powers, monsters, effect_queue, .. }) = self.find_combat_mut() {
+                            play_card_effects(&resolved_effects, card_type, target, player_powers, monsters, effect_queue);
                         }
                         self.drain_effect_queue();
                     }
@@ -1367,31 +1362,18 @@ impl GameState {
                 self.push_screen(Screen::ChoiceSelect {
                     choices,
                     target_index,
-                    energy_costs: vec![],
                 });
                 return EffectResult::Paused;
             }
-            Effect::XCost { per_energy, bonus } => {
+            Effect::XCost { per_energy, bonus, card_type } => {
                 if let Some(Screen::Combat { player_energy, .. }) = self.screen.last() {
                     let max_energy = *player_energy;
-                    let mut choices = Vec::new();
-                    let mut energy_costs = Vec::new();
-                    for spend in 0..=max_energy {
-                        let reps = spend as i16 + bonus;
-                        let label = format!("Spend {}", spend);
-                        let mut effects = Vec::new();
-                        for _ in 0..reps.max(0) {
-                            for e in per_energy.iter() {
-                                effects.push(e.clone());
-                            }
-                        }
-                        choices.push((label, effects));
-                        energy_costs.push(spend);
-                    }
-                    self.push_screen(Screen::ChoiceSelect {
-                        choices,
-                        target_index,
-                        energy_costs,
+                    self.push_screen(Screen::XCostSelect {
+                        per_energy: per_energy.to_vec(),
+                        bonus: *bonus,
+                        card_type: *card_type,
+                        target: target_index,
+                        max_energy,
                     });
                     return EffectResult::Paused;
                 }
@@ -1774,6 +1756,11 @@ impl GameState {
                     Action::PickChoice { label: label.clone(), choice_index: i as u8 }
                 }).collect()
             }
+            Screen::XCostSelect { max_energy, .. } => {
+                (0..=*max_energy).map(|spend| {
+                    Action::PickChoice { label: format!("Spend {}", spend), choice_index: spend }
+                }).collect()
+            }
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
             Screen::GameOver { .. } => vec![Action::Proceed],
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
@@ -2120,6 +2107,54 @@ fn apply_hand_select_action(
 
 /// Snapshot the current Weak/Vulnerable state and produce a TickDownAttackPowers
 /// effect for queuing after an attack resolves.
+/// Queue a card's effects, tick-down attack powers, and handle RepeatAttack.
+/// Used by both PlayCard (for normal cards) and XCostSelect resolution (for
+/// XCost cards once the energy spend is known).
+fn play_card_effects(
+    effects: &[Effect],
+    card_type: card_db::CardType,
+    target: Option<u8>,
+    player_powers: &mut Vec<crate::types::Power>,
+    monsters: &[crate::types::Monster],
+    effect_queue: &mut std::collections::VecDeque<(Effect, Option<u8>)>,
+) {
+    let has_xcost = effects.iter().any(|e| matches!(e, Effect::XCost { .. }));
+
+    if has_xcost {
+        // XCost effects need energy selection before they can resolve.
+        // Queue the raw effects; tick-down and RepeatAttack will be handled
+        // when play_card_effects is called again with resolved effects.
+        for effect in effects {
+            effect_queue.push_back((effect.clone(), target));
+        }
+        return;
+    }
+
+    let is_attack = card_type == card_db::CardType::Attack;
+    let repeat_count = if is_attack {
+        if let Some(repeat_power_id) = power_db::find_active_modifier(
+            power_db::PowerModifier::RepeatAttack,
+            player_powers,
+        ) {
+            apply_power(player_powers, &repeat_power_id, -1);
+            2
+        } else {
+            1
+        }
+    } else {
+        1
+    };
+
+    for _ in 0..repeat_count {
+        for effect in effects {
+            effect_queue.push_back((effect.clone(), target));
+        }
+        if is_attack {
+            effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));
+        }
+    }
+}
+
 fn make_tick_down_attack_powers_effect(
     player_powers: &[crate::types::Power],
     monsters: &[crate::types::Monster],

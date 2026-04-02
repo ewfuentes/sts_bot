@@ -72,6 +72,7 @@ pub enum Effect {
     XCost {
         per_energy: &'static [Effect],
         bonus: i16,
+        card_type: crate::card_db::CardType,
     },
     /// If the current die roll is within [min, max] (inclusive), push effects to the queue.
     ConditionalOnDieRoll {

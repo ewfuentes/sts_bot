@@ -113,9 +113,17 @@ pub enum Screen {
         choices: Vec<(String, Vec<Effect>)>,
         #[serde(skip)]
         target_index: Option<u8>,
-        /// Energy to deduct for each choice (empty = no energy cost).
-        #[serde(skip)]
-        energy_costs: Vec<u8>,
+    },
+    /// Energy selection screen for X-cost cards. The player chooses how much
+    /// energy to spend; the resolved effects are then played via play_card_effects.
+    /// This screen is only created at runtime — never deserialized.
+    #[serde(skip)]
+    XCostSelect {
+        per_energy: Vec<Effect>,
+        bonus: i16,
+        card_type: crate::card_db::CardType,
+        target: Option<u8>,
+        max_energy: u8,
     },
     CustomScreen {
         screen_enum: String,
