@@ -768,17 +768,7 @@ impl GameState {
 
                     let info = info.expect("card not found in card_db");
                     let effects = info.effective_effects(card.upgraded);
-
-                    if cost == -1 {
-                        // XCost card: queue raw effects only. Tick-down and
-                        // RepeatAttack are deferred to the XCostSelect PickChoice
-                        // handler, which calls play_card_effects with resolved effects.
-                        for effect in effects {
-                            effect_queue.push_back((effect.clone(), target));
-                        }
-                    } else {
-                        play_card_effects(effects, info.card_type, target, player_powers, monsters, effect_queue);
-                    }
+                    play_card_effects(effects, info.card_type, target, player_powers, monsters, effect_queue);
 
                     // Queue disposition as the final effect (after all card effects).
                     // Powers are consumed — no disposition needed.
@@ -2128,6 +2118,18 @@ fn play_card_effects(
     monsters: &[crate::types::Monster],
     effect_queue: &mut std::collections::VecDeque<(Effect, Option<u8>)>,
 ) {
+    let has_xcost = effects.iter().any(|e| matches!(e, Effect::XCost { .. }));
+
+    if has_xcost {
+        // XCost effects need energy selection before they can resolve.
+        // Queue the raw effects; tick-down and RepeatAttack will be handled
+        // when play_card_effects is called again with resolved effects.
+        for effect in effects {
+            effect_queue.push_back((effect.clone(), target));
+        }
+        return;
+    }
+
     let is_attack = card_type == card_db::CardType::Attack;
     let repeat_count = if is_attack {
         if let Some(repeat_power_id) = power_db::find_active_modifier(
