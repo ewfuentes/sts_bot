@@ -108,8 +108,6 @@ pub enum Effect {
     /// the card was played. `vuln_mask` is a bitmask of monster indices
     /// that had Vulnerable at queue time.
     TickDownAttackPowers { had_weak: bool, vuln_mask: u8 },
-    /// Override card disposition to exhaust (used by Corruption via OnPlayCard trigger).
-    ForceExhaust,
     Custom(&'static str),
 }
 

@@ -8,7 +8,6 @@ pub enum PowerTrigger {
     EndOfTurn,
     StartOfTurn,
     OnGainBlock,
-    OnPlayCard { card_type: crate::card_db::CardType },
 }
 
 #[derive(Debug, Clone)]
@@ -25,6 +24,7 @@ pub enum PowerModifier {
     PreventDraw,
     RepeatAttack,
     SkillsCostZero,
+    SkillsExhaust,
 }
 
 pub struct PowerInfo {
@@ -127,11 +127,8 @@ static POWERS: &[PowerInfo] = &[
     },
     PowerInfo {
         id: "BGCorruption",
-        triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::OnPlayCard { card_type: crate::card_db::CardType::Skill },
-            effects: &[Effect::ForceExhaust],
-        }],
-        modifiers: &[PowerModifier::SkillsCostZero],
+        triggers: &[],
+        modifiers: &[PowerModifier::SkillsCostZero, PowerModifier::SkillsExhaust],
     },
     PowerInfo {
         id: "NoDrawPower",

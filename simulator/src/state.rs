@@ -768,16 +768,11 @@ impl GameState {
                     let effects = info.effective_effects(card.upgraded);
                     play_card_effects(effects, info.card_type, target, player_powers, monsters, effect_queue);
 
-                    // Check OnPlayCard triggers for effects like ForceExhaust
-                    let play_triggers = power_db::collect_triggered_effects(
-                        power_db::PowerTrigger::OnPlayCard { card_type: info.card_type },
-                        player_powers,
-                    );
-                    let force_exhaust = play_triggers.iter().any(|e| matches!(e, Effect::ForceExhaust));
-
                     // Queue disposition as the final effect (after all card effects).
                     // Powers are consumed — no disposition needed.
                     if info.card_type != card_db::CardType::Power {
+                        let force_exhaust = info.card_type == card_db::CardType::Skill
+                            && power_db::has_modifier(power_db::PowerModifier::SkillsExhaust, player_powers);
                         let does_exhaust = info.does_exhaust(card.upgraded) || force_exhaust;
                         let does_rebound = info.rebound;
                         effect_queue.push_back((Effect::DisposeCard {
@@ -1531,10 +1526,6 @@ impl GameState {
                     effects: vec![Effect::DamageFixed(*amount)],
                 });
                 return EffectResult::Paused;
-            }
-            Effect::ForceExhaust => {
-                // Handled at play time when collecting OnPlayCard triggers,
-                // not during effect queue processing.
             }
             Effect::Custom(_id) => {
                 // Not yet implemented
