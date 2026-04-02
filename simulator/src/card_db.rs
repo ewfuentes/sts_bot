@@ -19,9 +19,10 @@ impl CardTarget {
 }
 
 /// Card type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CardType {
     Attack,
+    #[default]
     Skill,
     Power,
     Status,
@@ -314,8 +315,8 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .exhaust()
             .upgraded_effects(&[Damage(3), StrengthIfTargetDead(2)]),
         CardInfo::new("BGWhirlwind", -1, CardType::Attack, CardTarget::AllEnemy,
-            &[XCost { per_energy: &[DamageAll(1)], bonus: 0 }])
-            .upgraded_effects(&[XCost { per_energy: &[DamageAll(1)], bonus: 1 }]),
+            &[XCost { per_energy: &[DamageAll(1)], bonus: 0, card_type: CardType::Attack }])
+            .upgraded_effects(&[XCost { per_energy: &[DamageAll(1)], bonus: 1, card_type: CardType::Attack }]),
         CardInfo::new("BGPower Through", 1, CardType::Skill, CardTarget::_Self,
             &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])
             .upgraded_effects(&[Block(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),

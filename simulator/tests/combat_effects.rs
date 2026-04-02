@@ -2148,13 +2148,11 @@ fn whirlwind_presents_energy_choices() {
     state.apply(&play_action("BGWhirlwind", -1, "ATTACK", 0, None));
 
     // Should present 4 choices: Spend 0, 1, 2, 3
-    if let Screen::ChoiceSelect { choices, .. } = state.current_screen() {
-        assert_eq!(choices.len(), 4);
-        assert_eq!(choices[0].0, "Spend 0");
-        assert_eq!(choices[3].0, "Spend 3");
-    } else {
-        panic!("Expected ChoiceSelect, got {:?}", state.current_screen());
-    }
+    assert!(matches!(state.current_screen(), Screen::XCostSelect { .. }));
+    let actions = state.available_actions();
+    assert_eq!(actions.len(), 4);
+    assert!(matches!(&actions[0], Action::PickChoice { label, choice_index: 0 } if label == "Spend 0"));
+    assert!(matches!(&actions[3], Action::PickChoice { label, choice_index: 3 } if label == "Spend 3"));
 }
 
 #[test]
@@ -3323,6 +3321,33 @@ fn double_attack_expires_at_end_of_turn() {
             player_powers.iter().all(|p| p.id != "BGDoubleAttack"),
             "BGDoubleAttack should be removed at end of turn"
         );
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn double_attack_with_whirlwind_doubles_xcost_effects() {
+    let hand = vec![make_hand_card("BGWhirlwind", -1, "ATTACK")];
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![]),
+        make_monster("BGGreenLouse", "Louse", 10, 0, vec![]),
+    ];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGWhirlwind", -1, "ATTACK", 0, None));
+    // Spend 2 energy: 2 hits of DamageAll(1), doubled by RepeatAttack = 4 hits
+    state.apply(&Action::PickChoice { label: "Spend 2".to_string(), choice_index: 2 });
+
+    if let Screen::Combat { monsters, player_energy, player_powers, .. } = state.current_screen() {
+        // Energy deducted once: 3 - 2 = 1
+        assert_eq!(*player_energy, 1);
+        // Each monster takes 4 damage (2 hits x 2 from RepeatAttack)
+        assert_eq!(monsters[0].hp, 16); // 20 - 4
+        assert_eq!(monsters[1].hp, 6);  // 10 - 4
+        // Power consumed
+        assert!(player_powers.iter().all(|p| p.id != "BGDoubleAttack" || p.amount == 0));
     } else {
         panic!("Expected Combat screen");
     }
