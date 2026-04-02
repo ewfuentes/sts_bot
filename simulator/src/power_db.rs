@@ -22,6 +22,7 @@ pub struct TriggeredEffect {
 pub enum PowerModifier {
     PreventBlockDecay,
     PreventDraw,
+    RepeatAttack,
 }
 
 pub struct PowerInfo {
@@ -115,6 +116,11 @@ static POWERS: &[PowerInfo] = &[
         modifiers: &[],
     },
     PowerInfo {
+        id: "BGDoubleAttack",
+        triggers: &[],
+        modifiers: &[PowerModifier::RepeatAttack],
+    },
+    PowerInfo {
         id: "NoDrawPower",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::EndOfTurn,
@@ -135,6 +141,17 @@ pub fn has_modifier(modifier: PowerModifier, powers: &[crate::types::Power]) -> 
             .map(|info| info.modifiers.contains(&modifier))
             .unwrap_or(false)
     })
+}
+
+/// Find the first active power (amount > 0) that has the given modifier,
+/// returning its id.
+pub fn find_active_modifier(modifier: PowerModifier, powers: &[crate::types::Power]) -> Option<String> {
+    powers.iter().find(|power| {
+        power.amount > 0
+            && lookup(&power.id)
+                .map(|info| info.modifiers.contains(&modifier))
+                .unwrap_or(false)
+    }).map(|p| p.id.clone())
 }
 
 /// Collect all effects that should fire for the given trigger,

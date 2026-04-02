@@ -784,6 +784,24 @@ impl GameState {
                         effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));
                     }
 
+                    // RepeatAttack modifier: if this is an Attack, replay its effects
+                    // once and tick down the power that provides RepeatAttack.
+                    if is_attack {
+                        if let Some(repeat_power_id) = power_db::find_active_modifier(
+                            power_db::PowerModifier::RepeatAttack,
+                            player_powers,
+                        ) {
+                            let effects = info
+                                .map(|i| i.effective_effects(card.upgraded))
+                                .unwrap_or(&[]);
+                            for effect in effects {
+                                effect_queue.push_back((effect.clone(), target));
+                            }
+                            effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));
+                            apply_power(player_powers, &repeat_power_id, -1);
+                        }
+                    }
+
                     // Queue disposition as the final effect (after all card effects).
                     // Powers are consumed — no disposition needed.
                     let is_power = info
