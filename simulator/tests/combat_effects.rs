@@ -3352,3 +3352,73 @@ fn double_attack_with_whirlwind_doubles_xcost_effects() {
         panic!("Expected Combat screen");
     }
 }
+
+// ── Corruption (SkillsCostZero + ForceExhaust) ──
+
+#[test]
+fn corruption_makes_skill_cost_zero() {
+    // Shrug It Off costs 1, but with Corruption it should cost 0
+    let hand = vec![make_hand_card("BGShrug It Off", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGCorruption", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGShrug It Off", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_energy, .. } = state.current_screen() {
+        // No energy deducted
+        assert_eq!(*player_energy, 3);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn corruption_exhausts_skill() {
+    let hand = vec![make_hand_card("BGShrug It Off", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGCorruption", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGShrug It Off", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { exhaust_pile, discard_pile, .. } = state.current_screen() {
+        assert_eq!(exhaust_pile.len(), 1);
+        assert_eq!(discard_pile.len(), 0);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn corruption_does_not_affect_attacks() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGCorruption", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+
+    if let Screen::Combat { player_energy, discard_pile, exhaust_pile, .. } = state.current_screen() {
+        // Attack still costs 1 energy
+        assert_eq!(*player_energy, 2);
+        // Attack goes to discard, not exhaust
+        assert_eq!(discard_pile.len(), 1);
+        assert_eq!(exhaust_pile.len(), 0);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn corruption_makes_expensive_skill_playable() {
+    // Shrug It Off costs 1, player has 0 energy — with Corruption it's playable
+    let hand = vec![make_hand_card("BGShrug It Off", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGCorruption", 1)];
+    let state = combat_state_with_monsters(hand, monsters, 0, 0, player_powers);
+
+    let actions = state.available_actions();
+    let has_play = actions.iter().any(|a| matches!(a, Action::PlayCard { .. }));
+    assert!(has_play, "Skill should be playable with 0 energy under Corruption");
+}

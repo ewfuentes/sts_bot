@@ -756,24 +756,29 @@ impl GameState {
                     }
                     let hc = hand.remove(hand_idx);
                     let card = hc.card;
-                    let info = card_db::lookup(&card.id);
+                    let info = card_db::lookup(&card.id).expect("card not found in card_db");
 
-                    // Deduct energy
-                    let cost = info
-                        .map(|i| i.effective_cost(card.upgraded))
-                        .unwrap_or(card.cost);
+                    // Deduct energy (with cost modification from powers like Corruption)
+                    let base_cost = info.effective_cost(card.upgraded);
+                    let cost = power_db::apply_cost_modification(base_cost, info.card_type, player_powers);
                     if cost >= 0 {
                         *player_energy = player_energy.saturating_sub(cost as u8);
                     }
 
-                    let info = info.expect("card not found in card_db");
                     let effects = info.effective_effects(card.upgraded);
                     play_card_effects(effects, info.card_type, target, player_powers, monsters, effect_queue);
+
+                    // Check OnPlayCard triggers for effects like ForceExhaust
+                    let play_triggers = power_db::collect_triggered_effects(
+                        power_db::PowerTrigger::OnPlayCard { card_type: info.card_type },
+                        player_powers,
+                    );
+                    let force_exhaust = play_triggers.iter().any(|e| matches!(e, Effect::ForceExhaust));
 
                     // Queue disposition as the final effect (after all card effects).
                     // Powers are consumed — no disposition needed.
                     if info.card_type != card_db::CardType::Power {
-                        let does_exhaust = info.does_exhaust(card.upgraded);
+                        let does_exhaust = info.does_exhaust(card.upgraded) || force_exhaust;
                         let does_rebound = info.rebound;
                         effect_queue.push_back((Effect::DisposeCard {
                             card,
@@ -1527,6 +1532,10 @@ impl GameState {
                 });
                 return EffectResult::Paused;
             }
+            Effect::ForceExhaust => {
+                // Handled at play time when collecting OnPlayCard triggers,
+                // not during effect queue processing.
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
@@ -1717,9 +1726,9 @@ impl GameState {
                 shop_actions(cards, relics, potions, *purge_cost, self.gold, has_potion_slot)
             }
             Screen::BossRelic { relics, cards } => boss_relic_actions(relics, cards),
-            Screen::Combat { hand, monsters, effect_queue, player_energy, draw_pile, .. } => {
+            Screen::Combat { hand, monsters, effect_queue, player_energy, draw_pile, player_powers, .. } => {
                 assert!(effect_queue.is_empty(), "Effect queue should be empty when generating actions");
-                combat_actions(hand, monsters, *player_energy, draw_pile)
+                combat_actions(hand, monsters, *player_energy, draw_pile, player_powers)
             }
             Screen::HandSelect { cards, picked_indices, min_cards, max_cards, .. } => {
                 hand_select_actions(cards, picked_indices.len() as u8, *min_cards, *max_cards)
@@ -1942,7 +1951,7 @@ fn grid_actions(cards: &[Card]) -> Vec<Action> {
         .collect()
 }
 
-fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8, draw_pile: &[Card]) -> Vec<Action> {
+fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8, draw_pile: &[Card], player_powers: &[crate::types::Power]) -> Vec<Action> {
     let mut actions = Vec::new();
     let live_monsters: Vec<(u8, &Monster)> = monsters
         .iter()
@@ -1958,9 +1967,11 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8, draw_pile
 
     for (i, hc) in hand.iter().enumerate() {
         let info = card_db::lookup(&hc.card.id);
-        let cost = info
+        let base_cost = info
             .map(|i| i.effective_cost(hc.card.upgraded))
             .unwrap_or(hc.card.cost);
+        let card_type = info.map(|i| i.card_type).unwrap_or(card_db::CardType::Skill);
+        let cost = power_db::get_modified_cost(base_cost, card_type, player_powers);
         let is_x_cost = cost == -1;
         if !is_x_cost && (cost < 0 || cost > energy as i8) {
             continue;
