@@ -23,6 +23,8 @@ pub enum PowerModifier {
     PreventBlockDecay,
     PreventDraw,
     RepeatAttack,
+    SkillsCostZero,
+    SkillsExhaust,
 }
 
 pub struct PowerInfo {
@@ -124,6 +126,11 @@ static POWERS: &[PowerInfo] = &[
         modifiers: &[PowerModifier::RepeatAttack],
     },
     PowerInfo {
+        id: "BGCorruption",
+        triggers: &[],
+        modifiers: &[PowerModifier::SkillsCostZero, PowerModifier::SkillsExhaust],
+    },
+    PowerInfo {
         id: "NoDrawPower",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::EndOfTurn,
@@ -155,6 +162,40 @@ pub fn find_active_modifier(modifier: PowerModifier, powers: &[crate::types::Pow
                 .map(|info| info.modifiers.contains(&modifier))
                 .unwrap_or(false)
     }).map(|p| p.id.clone())
+}
+
+/// Compute the effective cost of a card after applying cost-modifying powers.
+/// Pure query — does not consume any powers.
+pub fn get_modified_cost(
+    base_cost: i8,
+    card_type: crate::card_db::CardType,
+    powers: &[crate::types::Power],
+) -> i8 {
+    if base_cost < 0 {
+        return base_cost;
+    }
+
+    if card_type == crate::card_db::CardType::Skill
+        && has_modifier(PowerModifier::SkillsCostZero, powers)
+    {
+        return 0;
+    }
+
+    base_cost
+}
+
+/// Compute the effective cost and consume any one-shot cost-modifying powers.
+/// Call this at play time (not for playability checks).
+pub fn apply_cost_modification(
+    base_cost: i8,
+    card_type: crate::card_db::CardType,
+    powers: &mut Vec<crate::types::Power>,
+) -> i8 {
+    let cost = get_modified_cost(base_cost, card_type, powers);
+
+    // Future: consume one-shot powers here (FreeAttack, Confusion)
+
+    cost
 }
 
 /// Collect all effects that should fire for the given trigger,
