@@ -19,10 +19,9 @@ impl CardTarget {
 }
 
 /// Card type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CardType {
     Attack,
-    #[default]
     Skill,
     Power,
     Status,

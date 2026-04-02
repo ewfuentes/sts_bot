@@ -116,16 +116,13 @@ pub enum Screen {
     },
     /// Energy selection screen for X-cost cards. The player chooses how much
     /// energy to spend; the resolved effects are then played via play_card_effects.
+    /// This screen is only created at runtime — never deserialized.
+    #[serde(skip)]
     XCostSelect {
-        #[serde(skip)]
         per_energy: Vec<Effect>,
-        #[serde(skip)]
         bonus: i16,
-        #[serde(skip)]
         card_type: crate::card_db::CardType,
-        #[serde(skip)]
         target: Option<u8>,
-        #[serde(skip)]
         max_energy: u8,
     },
     CustomScreen {
