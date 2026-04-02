@@ -175,6 +175,40 @@ pub fn collect_triggered_effects(
     results
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Power;
+
+    #[test]
+    fn lookup_double_attack() {
+        let info = lookup("BGDoubleAttack").unwrap();
+        assert!(info.modifiers.contains(&PowerModifier::RepeatAttack));
+        assert!(info.triggers.is_empty());
+    }
+
+    #[test]
+    fn find_active_modifier_returns_power_id() {
+        let powers = vec![Power { id: "BGDoubleAttack".into(), amount: 1 }];
+        let result = find_active_modifier(PowerModifier::RepeatAttack, &powers);
+        assert_eq!(result.as_deref(), Some("BGDoubleAttack"));
+    }
+
+    #[test]
+    fn find_active_modifier_skips_zero_amount() {
+        let powers = vec![Power { id: "BGDoubleAttack".into(), amount: 0 }];
+        let result = find_active_modifier(PowerModifier::RepeatAttack, &powers);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn find_active_modifier_returns_none_when_absent() {
+        let powers = vec![Power { id: "Barricade".into(), amount: 1 }];
+        let result = find_active_modifier(PowerModifier::RepeatAttack, &powers);
+        assert_eq!(result, None);
+    }
+}
+
 fn substitute_amount(effect: &Effect, power: &crate::types::Power) -> Effect {
     let amt = power.amount;
     match effect {
