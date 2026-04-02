@@ -117,7 +117,10 @@ static POWERS: &[PowerInfo] = &[
     },
     PowerInfo {
         id: "BGDoubleAttack",
-        triggers: &[],
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::EndOfTurn,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGDoubleAttack", amount: i16::MIN }],
+        }],
         modifiers: &[PowerModifier::RepeatAttack],
     },
     PowerInfo {

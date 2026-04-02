@@ -3307,3 +3307,23 @@ fn double_attack_stacks_repeat_multiple_attacks() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn double_attack_expires_at_end_of_turn() {
+    let hand = vec![make_hand_card("BGDefend_R", 1, "SKILL")];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![make_power("BGDoubleAttack", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    // Don't play any attacks, just end the turn
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(
+            player_powers.iter().all(|p| p.id != "BGDoubleAttack"),
+            "BGDoubleAttack should be removed at end of turn"
+        );
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
