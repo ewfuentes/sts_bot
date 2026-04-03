@@ -1,5 +1,6 @@
 pub mod card_db;
 pub mod effects;
+pub mod monster_db;
 pub mod power_db;
 mod action;
 mod map;

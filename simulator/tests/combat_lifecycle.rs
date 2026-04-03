@@ -42,6 +42,7 @@ fn combat_state(
             "player_block": block,
             "player_energy": energy,
             "player_powers": [],
+            "die_roll": 1,
             "turn": 1
         }
     });

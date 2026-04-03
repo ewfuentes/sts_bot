@@ -28,6 +28,7 @@ fn make_monster(id: &str, name: &str, hp: u16, block: u16, powers: Vec<Power>) -
         hits: 1,
         powers,
         is_gone: false,
+        move_index: 0,
     }
 }
 
@@ -63,6 +64,7 @@ fn combat_state_with_monsters(
             "player_block": block,
             "player_energy": energy,
             "player_powers": player_powers,
+            "die_roll": 1,
             "turn": 1
         }
     });
@@ -2759,7 +2761,7 @@ fn juggernaut_does_not_trigger_at_block_cap() {
 
 #[test]
 fn barricade_prevents_block_decay() {
-    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let monsters = vec![make_monster("TestMonster", "Test", 10, 0, vec![])];
     let player_powers = vec![make_power("Barricade", 1)];
     let mut state = combat_state_with_monsters(vec![], monsters, 3, 5, player_powers);
 
@@ -2816,7 +2818,7 @@ fn no_draw_power_prevents_draws() {
 
 #[test]
 fn no_draw_power_expires_at_end_of_turn() {
-    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let monsters = vec![make_monster("TestMonster", "Test", 10, 0, vec![])];
     let player_powers = vec![make_power("NoDrawPower", 1)];
 
     let json = serde_json::json!({
@@ -2837,6 +2839,7 @@ fn no_draw_power_expires_at_end_of_turn() {
             "player_block": 0,
             "player_energy": 3,
             "player_powers": player_powers,
+            "die_roll": 1,
             "turn": 1
         }
     });
@@ -2887,7 +2890,7 @@ fn berserk_deals_damage_to_all_on_exhaust() {
 
 #[test]
 fn demon_form_gains_strength_at_start_of_turn() {
-    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
+    let monsters = vec![make_monster("TestMonster", "Test", 20, 0, vec![])];
     let player_powers = vec![make_power("DemonForm", 1)];
     let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
 
@@ -2904,7 +2907,7 @@ fn demon_form_gains_strength_at_start_of_turn() {
 
 #[test]
 fn demon_form_stacks_strength_over_turns() {
-    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
+    let monsters = vec![make_monster("TestMonster", "Test", 20, 0, vec![])];
     let player_powers = vec![make_power("DemonForm", 1)];
     let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
 
@@ -2923,7 +2926,7 @@ fn demon_form_stacks_strength_over_turns() {
 
 #[test]
 fn metallicize_grants_block_at_end_of_turn() {
-    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
+    let monsters = vec![make_monster("TestMonster", "Test", 20, 0, vec![])];
     let player_powers = vec![
         make_power("Metallicize", 2),
         make_power("Barricade", 1),
@@ -2944,8 +2947,8 @@ fn metallicize_grants_block_at_end_of_turn() {
 #[test]
 fn combust_deals_damage_at_end_of_turn() {
     let monsters = vec![
-        make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![]),
-        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+        make_monster("TestMonster", "Test", 10, 0, vec![]),
+        make_monster("TestMonster", "Test", 8, 0, vec![]),
     ];
     let player_powers = vec![make_power("BGCombust", 3)];
 
@@ -2965,6 +2968,7 @@ fn combust_deals_damage_at_end_of_turn() {
             "player_block": 0,
             "player_energy": 3,
             "player_powers": player_powers,
+            "die_roll": 1,
             "turn": 1
         }
     });
@@ -3309,7 +3313,7 @@ fn double_attack_stacks_repeat_multiple_attacks() {
 #[test]
 fn double_attack_expires_at_end_of_turn() {
     let hand = vec![make_hand_card("BGDefend_R", 1, "SKILL")];
-    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let monsters = vec![make_monster("TestMonster", "Test", 8, 0, vec![])];
     let player_powers = vec![make_power("BGDoubleAttack", 1)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
 
@@ -3421,4 +3425,247 @@ fn corruption_makes_expensive_skill_playable() {
     let actions = state.available_actions();
     let has_play = actions.iter().any(|a| matches!(a, Action::PlayCard { .. }));
     assert!(has_play, "Skill should be playable with 0 energy under Corruption");
+}
+
+// ── Monster turns ──
+
+#[test]
+fn monster_deals_damage_to_player() {
+    // Spike Slime S: Tackle = 1 damage
+    let monsters = vec![make_monster("BGSpikeSlime_S", "Spike Slime", 3, 0, vec![])];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, vec![]);
+
+    state.apply(&Action::EndTurn);
+
+    assert_eq!(state.hp, 9); // 10 - 1
+}
+
+#[test]
+fn player_block_absorbs_monster_damage() {
+    let monsters = vec![make_monster("BGSpikeSlime_S", "Spike Slime", 3, 0, vec![])];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 5, vec![]);
+
+    state.apply(&Action::EndTurn);
+
+    // Block absorbs the 1 damage, HP unchanged
+    assert_eq!(state.hp, 10);
+    if let Screen::Combat { player_block, .. } = state.current_screen() {
+        // Block decayed to 0 at start of next turn (no Barricade)
+        assert_eq!(*player_block, 0);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn player_defeat_on_zero_hp() {
+    // Jaw Worm Chomp = 3 damage, player has 2 HP
+    let mut monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    monsters[0].move_index = 0; // Chomp
+    let json = serde_json::json!({
+        "hp": 2, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::EndTurn);
+
+    assert!(matches!(state.current_screen(), Screen::GameOver { victory: false }));
+}
+
+#[test]
+fn jaw_worm_die_roll_selects_bellow() {
+    // Die roll 1-2 → Bellow (move index 2): block + Strength
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": [{
+                "id": "BGJawWorm", "name": "Jaw Worm", "hp": 8, "max_hp": 8,
+                "block": 0, "intent": "DEFEND_BUFF", "damage": null, "hits": 1,
+                "powers": [], "is_gone": false, "move_index": 2
+            }],
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 2,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::EndTurn);
+
+    // Bellow: no damage to player, monster gained Strength
+    assert_eq!(state.hp, 10);
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let str_amount = monsters[0].powers.iter()
+            .find(|p| p.id == "Strength").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(str_amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn cultist_first_turn_incantation_then_dark_strike() {
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": [{
+                "id": "BGCultist", "name": "Cultist", "hp": 9, "max_hp": 9,
+                "block": 0, "intent": "ATTACK_BUFF", "damage": 1, "hits": 1,
+                "powers": [],
+                "is_gone": false, "move_index": 0
+            }],
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Apply pre-battle effects (Ritual)
+    state.apply_monster_starting_effects();
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert!(monsters[0].powers.iter().any(|p| p.id == "Ritual" && p.amount == 1));
+    }
+
+    // Turn 1: Incantation (1 dmg). Ritual fires at MonsterEndOfTurn → +1 Str.
+    state.apply(&Action::EndTurn);
+    assert_eq!(state.hp, 9); // 10 - 1
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let str_amount = monsters[0].powers.iter()
+            .find(|p| p.id == "Strength").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(str_amount, 1);
+        assert_eq!(monsters[0].move_index, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+
+    // Turn 2: Dark Strike (1 base + 1 Str = 2 dmg). Ritual fires → +1 Str.
+    state.apply(&Action::EndTurn);
+    assert_eq!(state.hp, 7); // 9 - 2
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let str_amount = monsters[0].powers.iter()
+            .find(|p| p.id == "Strength").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(str_amount, 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn monster_block_gained_then_decayed_next_turn() {
+    // Jaw Worm: turn 1 = Bellow (block + str), turn 2 = Chomp (attack only)
+    // Use die_roll=6 to get Chomp on turn 2
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": [{
+                "id": "BGJawWorm", "name": "Jaw Worm", "hp": 8, "max_hp": 8,
+                "block": 0, "intent": "DEFEND_BUFF", "damage": null, "hits": 1,
+                "powers": [], "is_gone": false, "move_index": 2
+            }],
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 6,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Turn 1: Bellow → gains 2 block + 1 Strength
+    state.apply(&Action::EndTurn);
+    // die_roll=6 → next move is Chomp (index 0), no block gain
+
+    // Turn 2: DecayMonsterBlock → block goes to 0, then Chomp (attack, no block)
+    state.apply(&Action::EndTurn);
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].block, 0, "Monster block should have decayed");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn monster_attack_ticks_down_player_vulnerable() {
+    // Player has Vulnerable, monster attacks → Vulnerable should tick down
+    let monsters = vec![make_monster("BGSpikeSlime_S", "Spike Slime", 3, 0, vec![])];
+    let player_powers = vec![make_power("BGVulnerable", 2)];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let vuln = player_powers.iter()
+            .find(|p| p.id == "BGVulnerable").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(vuln, 1, "Vulnerable should tick down by 1 after monster attack");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn monster_attack_ticks_down_monster_weakened() {
+    // Monster has Weakened, attacks → Weakened should tick down
+    let monsters = vec![make_monster("BGSpikeSlime_S", "Spike Slime", 3, 0,
+        vec![make_power("BGWeakened", 2)]
+    )];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, vec![]);
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let weak = monsters[0].powers.iter()
+            .find(|p| p.id == "BGWeakened").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(weak, 1, "Monster Weakened should tick down by 1 after attacking");
+    } else {
+        panic!("Expected Combat screen");
+    }
 }

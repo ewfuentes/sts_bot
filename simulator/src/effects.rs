@@ -17,6 +17,14 @@ pub enum DamageSource {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     Damage(i16),
+    /// A monster gains block.
+    MonsterBlock(u16),
+    /// Reset a monster's block to 0 (end of monster turn).
+    DecayMonsterBlock,
+    /// Damage from a monster to the player. Base damage is modified by the
+    /// monster's Strength/Weak and player's Vulnerable via calculate_damage.
+    /// Reduces player block first, then HP.
+    DamageToPlayer { base: i16, monster_index: u8 },
     /// Damage not affected by strength (thorns, Combust, orbs, etc.)
     DamageFixed(i16),
     DamageAll(i16),
@@ -108,6 +116,9 @@ pub enum Effect {
     /// the card was played. `vuln_mask` is a bitmask of monster indices
     /// that had Vulnerable at queue time.
     TickDownAttackPowers { had_weak: bool, vuln_mask: u8 },
+    /// After a monster attacks the player: tick down the monster's BGWeakened
+    /// and the player's BGVulnerable.
+    TickDownMonsterAttackPowers { monster_had_weak: bool, player_had_vuln: bool },
     Custom(&'static str),
 }
 
@@ -140,10 +151,18 @@ pub enum HandFilter {
     NonAttacks,
 }
 
-/// Who an effect targets.
+/// Who an effect targets (used in static card/power definitions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectTarget {
     TargetEnemy,
     _Self,
     AllEnemies,
+}
+
+/// Resolved target for effects in the effect queue at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedTarget {
+    Monster(u8),
+    Player,
+    NoTarget,
 }
