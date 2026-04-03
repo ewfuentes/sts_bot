@@ -55,4 +55,7 @@ pub struct Monster {
     pub powers: Vec<Power>,
     #[serde(default)]
     pub is_gone: bool,
+    /// Current move index into the monster_db move table.
+    #[serde(default)]
+    pub move_index: u8,
 }

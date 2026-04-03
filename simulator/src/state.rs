@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
 use crate::card_db;
+use crate::monster_db;
 use crate::power_db;
 use crate::effects::{DamageSource, Effect, EffectTarget, HandFilter, HandSelectAction, Pile};
 use crate::map::{ActMap, MapNodeKind};
@@ -790,7 +791,7 @@ impl GameState {
                 // 1. End-of-turn power triggers (Metallicize, BGCombust, etc.)
                 if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
                     let triggered = power_db::collect_triggered_effects(
-                        power_db::PowerTrigger::EndOfTurn,
+                        power_db::PowerTrigger::PlayerEndOfTurn,
                         player_powers,
                     );
                     for effect in triggered {
@@ -820,12 +821,19 @@ impl GameState {
                 // then FeelNoPain, DarkEmbrace from ethereal exhausts, etc.)
                 self.drain_effect_queue();
 
+                // Monster turns
+                self.execute_monster_turns();
+
+                // Check for player defeat after monster turns
+                if self.hp == 0 {
+                    self.set_screen(Screen::GameOver { victory: false });
+                    return;
+                }
+
                 if let Screen::Combat {
                     player_block, player_energy, player_powers, turn, effect_queue, ..
                 } = self.current_screen_mut()
                 {
-                    // [STUB] Monster turns would go here
-
                     // Start of next turn:
                     // 1. Reset energy and block
                     if !power_db::has_modifier(power_db::PowerModifier::PreventBlockDecay, player_powers) {
@@ -846,7 +854,7 @@ impl GameState {
                 // 4. Start-of-turn power triggers (DemonForm, etc.)
                 if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
                     let triggered = power_db::collect_triggered_effects(
-                        power_db::PowerTrigger::StartOfTurn,
+                        power_db::PowerTrigger::PlayerStartOfTurn,
                         player_powers,
                     );
                     for effect in triggered {
@@ -1026,7 +1034,9 @@ impl GameState {
         }
 
         // Finalize
-        if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+        if self.hp == 0 {
+            self.set_screen(Screen::GameOver { victory: false });
+        } else if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
             if monsters.iter().all(|m| m.is_gone) {
                 self.finish_combat();
             }
@@ -1037,6 +1047,17 @@ impl GameState {
     /// pause for a sub-decision, or stop because combat ended.
     fn execute_effect(&mut self, effect: &Effect, target_index: Option<u8>) -> EffectResult {
         match effect {
+            Effect::DamageToPlayer(amount) => {
+                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
+                    if *amount <= *player_block {
+                        *player_block -= *amount;
+                    } else {
+                        let remaining = *amount - *player_block;
+                        *player_block = 0;
+                        self.hp = self.hp.saturating_sub(remaining);
+                    }
+                }
+            }
             Effect::Damage(amount) => {
                 if let Some(idx) = target_index {
                     let idx = idx as usize;
@@ -1540,6 +1561,14 @@ impl GameState {
             }
         }
 
+        // Check for player defeat
+        if self.hp == 0 {
+            if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                effect_queue.clear();
+            }
+            return EffectResult::CombatOver;
+        }
+
         EffectResult::Continue
     }
 
@@ -1571,6 +1600,69 @@ impl GameState {
                 }
             }
         }
+    }
+
+    fn execute_monster_turns(&mut self) {
+        if let Some(Screen::Combat { monsters, player_powers, effect_queue, die_roll, turn, .. }) = self.find_combat_mut() {
+            let roll = die_roll.unwrap_or(1);
+            let current_turn = *turn;
+
+            for monster in monsters.iter_mut() {
+                if monster.is_gone {
+                    continue;
+                }
+
+                // 1. Execute current move
+                if let Some(info) = monster_db::lookup(&monster.id) {
+                    let move_idx = monster.move_index as usize;
+                    if let Some(monster_move) = info.moves.get(move_idx) {
+                        for effect in monster_move.effects {
+                            match effect {
+                                monster_db::MonsterEffect::DamagePlayer(base) => {
+                                    let dmg = calculate_damage(*base, &monster.powers, player_powers);
+                                    effect_queue.push_back((Effect::DamageToPlayer(dmg), None));
+                                }
+                                monster_db::MonsterEffect::DamagePlayerMulti { damage, hits } => {
+                                    for _ in 0..*hits {
+                                        let dmg = calculate_damage(*damage, &monster.powers, player_powers);
+                                        effect_queue.push_back((Effect::DamageToPlayer(dmg), None));
+                                    }
+                                }
+                                monster_db::MonsterEffect::GainBlock(amount) => {
+                                    monster.block += amount;
+                                }
+                                monster_db::MonsterEffect::ApplyPowerToSelf { power_id, amount } => {
+                                    apply_power(&mut monster.powers, power_id, *amount as i32);
+                                }
+                                monster_db::MonsterEffect::ApplyPowerToPlayer { power_id, amount } => {
+                                    apply_power(player_powers, power_id, *amount as i32);
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Fire monster EndOfTurn power triggers (e.g., Ritual → Strength)
+                    let triggered = power_db::collect_triggered_effects(
+                        power_db::PowerTrigger::MonsterEndOfTurn,
+                        &monster.powers,
+                    );
+                    for effect in &triggered {
+                        if let Effect::ApplyPower { power_id, amount, .. } = effect {
+                            apply_power(&mut monster.powers, power_id, *amount as i32);
+                        }
+                    }
+
+                    // 3. Decay block and determine next move
+                    monster.block = 0;
+                    let next_idx = monster_db::next_move(info.pattern, roll, current_turn + 1);
+                    monster.move_index = next_idx;
+                    update_monster_display(monster, info, next_idx);
+                }
+            }
+        }
+
+        // Drain queued DamageToPlayer effects (defeat check happens automatically)
+        self.drain_effect_queue();
     }
 
     fn finish_combat(&mut self) {
@@ -2011,6 +2103,37 @@ enum EffectResult {
 }
 
 /// Deal damage to a monster, accounting for its block.
+fn update_monster_display(monster: &mut crate::types::Monster, info: &monster_db::MonsterInfo, move_idx: u8) {
+    if let Some(next_move) = info.moves.get(move_idx as usize) {
+        let has_damage = next_move.effects.iter().any(|e| matches!(e,
+            monster_db::MonsterEffect::DamagePlayer(_) |
+            monster_db::MonsterEffect::DamagePlayerMulti { .. }
+        ));
+        if has_damage {
+            monster.intent = "ATTACK".to_string();
+            for e in next_move.effects {
+                match e {
+                    monster_db::MonsterEffect::DamagePlayer(d) => {
+                        monster.damage = Some(*d);
+                        monster.hits = 1;
+                        break;
+                    }
+                    monster_db::MonsterEffect::DamagePlayerMulti { damage, hits } => {
+                        monster.damage = Some(*damage);
+                        monster.hits = *hits;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            monster.intent = "BUFF".to_string();
+            monster.damage = None;
+            monster.hits = 1;
+        }
+    }
+}
+
 fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) {
     if damage <= monster.block {
         monster.block -= damage;

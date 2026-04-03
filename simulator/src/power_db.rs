@@ -5,8 +5,9 @@ pub enum PowerTrigger {
     OnExhaust,
     OnDraw { card_type: crate::card_db::CardType },
     OnShuffle,
-    EndOfTurn,
-    StartOfTurn,
+    PlayerEndOfTurn,
+    PlayerStartOfTurn,
+    MonsterEndOfTurn,
     OnGainBlock,
 }
 
@@ -75,7 +76,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "Metallicize",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::EndOfTurn,
+            trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::Block(0)],
         }],
         modifiers: &[],
@@ -83,7 +84,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGCombust",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::EndOfTurn,
+            trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::DamageFixedAll(0)],
         }],
         modifiers: &[],
@@ -99,7 +100,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "DemonForm",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::StartOfTurn,
+            trigger: PowerTrigger::PlayerStartOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
         }],
         modifiers: &[],
@@ -120,7 +121,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGDoubleAttack",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::EndOfTurn,
+            trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGDoubleAttack", amount: i16::MIN }],
         }],
         modifiers: &[PowerModifier::RepeatAttack],
@@ -131,9 +132,17 @@ static POWERS: &[PowerInfo] = &[
         modifiers: &[PowerModifier::SkillsCostZero, PowerModifier::SkillsExhaust],
     },
     PowerInfo {
+        id: "Ritual",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterEndOfTurn,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
         id: "NoDrawPower",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::EndOfTurn,
+            trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "NoDrawPower", amount: -1 }],
         }],
         modifiers: &[PowerModifier::PreventDraw],
