@@ -47,23 +47,21 @@ static MONSTERS: &[MonsterInfo] = &[
     MonsterInfo {
         id: "BGCultist",
         moves: &[
-            // Move 0: Incantation (attack + gain Strength)
+            // Move 0: Incantation (attack + gain Strength + apply Ritual)
+            // Ritual is applied here rather than pre-battle so it doesn't
+            // fire at MonsterEndOfTurn on the first turn.
             MonsterMove {
                 name: "Incantation",
                 effects: &[
                     Effect::Damage(1),
                     Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Ritual", amount: 1 },
                 ],
             },
-            // Move 1: Dark Strike (attack + gain Strength from Ritual)
-            // Ritual is modeled as +1 Strength after each attack rather than
-            // a separate triggered power, to avoid first-turn timing issues.
+            // Move 1: Dark Strike (attack only — Ritual handles Strength gain)
             MonsterMove {
                 name: "Dark Strike",
-                effects: &[
-                    Effect::Damage(1),
-                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
-                ],
+                effects: &[Effect::Damage(1)],
             },
         ],
         pattern: MovePattern::FirstThenRepeat { first: 0, repeat: 1 },
@@ -81,14 +79,14 @@ static MONSTERS: &[MonsterInfo] = &[
                 name: "Thrash",
                 effects: &[
                     Effect::Damage(2),
-                    Effect::Block(2),
+                    Effect::MonsterBlock(2),
                 ],
             },
             // Move 2: Bellow (block + Strength)
             MonsterMove {
                 name: "Bellow",
                 effects: &[
-                    Effect::Block(2),
+                    Effect::MonsterBlock(2),
                     Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
                 ],
             },

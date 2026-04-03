@@ -17,9 +17,12 @@ pub enum DamageSource {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
     Damage(i16),
-    /// Damage from a monster to the player. The amount is already calculated
-    /// (Strength, Weak, Vulnerable applied). Reduces player block first, then HP.
-    DamageToPlayer(u16),
+    /// A monster gains block.
+    MonsterBlock(u16),
+    /// Damage from a monster to the player. Base damage is modified by the
+    /// monster's Strength/Weak and player's Vulnerable via calculate_damage.
+    /// Reduces player block first, then HP.
+    DamageToPlayer { base: i16, monster_index: u8 },
     /// Damage not affected by strength (thorns, Combust, orbs, etc.)
     DamageFixed(i16),
     DamageAll(i16),

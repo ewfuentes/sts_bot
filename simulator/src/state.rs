@@ -824,12 +824,9 @@ impl GameState {
                 // then FeelNoPain, DarkEmbrace from ethereal exhausts, etc.)
                 self.drain_effect_queue();
 
-                // Monster turns
+                // Monster turns (queues effects, drain handles defeat/victory)
                 self.execute_monster_turns();
-
-                // Check for player defeat after monster turns
-                if self.hp == 0 {
-                    self.set_screen(Screen::GameOver { victory: false });
+                if !matches!(self.current_screen(), Screen::Combat { .. }) {
                     return;
                 }
 
@@ -1056,14 +1053,18 @@ impl GameState {
     /// pause for a sub-decision, or stop because combat ended.
     fn execute_effect(&mut self, effect: &Effect, target: ResolvedTarget) -> EffectResult {
         match effect {
-            Effect::DamageToPlayer(amount) => {
-                if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
-                    if *amount <= *player_block {
-                        *player_block -= *amount;
-                    } else {
-                        let remaining = *amount - *player_block;
-                        *player_block = 0;
-                        self.hp = self.hp.saturating_sub(remaining);
+            Effect::DamageToPlayer { base, monster_index } => {
+                let idx = *monster_index as usize;
+                if let Some(Screen::Combat { monsters, player_powers, player_block, .. }) = self.find_combat_mut() {
+                    if idx < monsters.len() {
+                        let dmg = calculate_damage(*base, &monsters[idx].powers, player_powers);
+                        if dmg <= *player_block {
+                            *player_block -= dmg;
+                        } else {
+                            let remaining = dmg - *player_block;
+                            *player_block = 0;
+                            self.hp = self.hp.saturating_sub(remaining);
+                        }
                     }
                 }
             }
@@ -1153,6 +1154,16 @@ impl GameState {
                     }
                 }
             }
+            Effect::MonsterBlock(amount) => {
+                if let ResolvedTarget::Monster(idx) = target {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                        if idx < monsters.len() && !monsters[idx].is_gone {
+                            monsters[idx].block = monsters[idx].block.saturating_add(*amount as u16);
+                        }
+                    }
+                }
+            }
             Effect::DoubleBlock => {
                 if let Some(Screen::Combat { player_block, player_powers, effect_queue, .. }) = self.find_combat_mut() {
                     let before = *player_block;
@@ -1195,15 +1206,33 @@ impl GameState {
                 if let Some(Screen::Combat { player_powers, monsters, .. }) = self.find_combat_mut() {
                     match effect_target {
                         EffectTarget::TargetEnemy => {
-                            if let ResolvedTarget::Monster(idx) = target {
-                                let idx = idx as usize;
-                                if idx < monsters.len() && !monsters[idx].is_gone {
-                                    apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
+                            // From player: target enemy monster. From monster: target player.
+                            match target {
+                                ResolvedTarget::Monster(idx) => {
+                                    let idx = idx as usize;
+                                    if idx < monsters.len() && !monsters[idx].is_gone {
+                                        apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
+                                    }
                                 }
+                                ResolvedTarget::Player => {
+                                    apply_power(player_powers, power_id, *amount as i32);
+                                }
+                                _ => {}
                             }
                         }
                         EffectTarget::_Self => {
-                            apply_power(player_powers, power_id, *amount as i32);
+                            // "Self" depends on who queued the effect
+                            match target {
+                                ResolvedTarget::Monster(idx) => {
+                                    let idx = idx as usize;
+                                    if idx < monsters.len() && !monsters[idx].is_gone {
+                                        apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
+                                    }
+                                }
+                                _ => {
+                                    apply_power(player_powers, power_id, *amount as i32);
+                                }
+                            }
                         }
                         EffectTarget::AllEnemies => {
                             for monster in monsters.iter_mut() {
@@ -1618,52 +1647,49 @@ impl GameState {
     }
 
     fn execute_monster_turns(&mut self) {
-        if let Some(Screen::Combat { monsters, player_powers, effect_queue, die_roll, turn, .. }) = self.find_combat_mut() {
-            let roll = die_roll.unwrap_or(1);
+        if let Some(Screen::Combat { monsters, effect_queue, die_roll, turn, .. }) = self.find_combat_mut() {
+            let roll = die_roll.expect("die_roll must be set before EndTurn");
             let current_turn = *turn;
 
-            for monster in monsters.iter_mut() {
+            for (i, monster) in monsters.iter_mut().enumerate() {
                 if monster.is_gone {
                     continue;
                 }
 
-                // 1. Execute current move
+                let monster_idx = i as u8;
+
                 if let Some(info) = monster_db::lookup(&monster.id) {
+                    // 1. Queue current move effects
                     let move_idx = monster.move_index as usize;
                     if let Some(monster_move) = info.moves.get(move_idx) {
                         for effect in monster_move.effects {
                             match effect {
                                 Effect::Damage(base) => {
-                                    let dmg = calculate_damage(*base, &monster.powers, player_powers);
-                                    effect_queue.push_back((Effect::DamageToPlayer(dmg), ResolvedTarget::Player));
+                                    effect_queue.push_back((
+                                        Effect::DamageToPlayer { base: *base, monster_index: monster_idx },
+                                        ResolvedTarget::Player,
+                                    ));
                                 }
-                                Effect::Block(amount) => {
-                                    monster.block = monster.block.saturating_add(*amount as u16);
+                                Effect::MonsterBlock(_) | Effect::ApplyPower { .. } => {
+                                    effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
                                 }
-                                Effect::ApplyPower { target: EffectTarget::_Self, power_id, amount } => {
-                                    apply_power(&mut monster.powers, power_id, *amount as i32);
+                                _ => {
+                                    panic!("Unexpected effect in monster move: {:?}", effect);
                                 }
-                                Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id, amount } => {
-                                    apply_power(player_powers, power_id, *amount as i32);
-                                }
-                                _ => {}
                             }
                         }
                     }
 
-                    // 2. Fire monster EndOfTurn power triggers (e.g., Ritual → Strength)
+                    // 2. Queue monster EndOfTurn power triggers (e.g., Ritual → Strength)
                     let triggered = power_db::collect_triggered_effects(
                         power_db::PowerTrigger::MonsterEndOfTurn,
                         &monster.powers,
                     );
-                    for effect in &triggered {
-                        if let Effect::ApplyPower { power_id, amount, .. } = effect {
-                            apply_power(&mut monster.powers, power_id, *amount as i32);
-                        }
+                    for effect in triggered {
+                        effect_queue.push_back((effect, ResolvedTarget::Monster(monster_idx)));
                     }
 
-                    // 3. Decay block and determine next move
-                    monster.block = 0;
+                    // 3. Determine next move
                     let next_idx = monster_db::next_move(info.pattern, roll, current_turn + 1);
                     monster.move_index = next_idx;
                     update_monster_display(monster, info, next_idx);
@@ -1671,7 +1697,7 @@ impl GameState {
             }
         }
 
-        // Drain queued DamageToPlayer effects (defeat check happens automatically)
+        // Drain all queued effects (damage, block, powers, defeat check all happen here)
         self.drain_effect_queue();
     }
 
@@ -2271,7 +2297,24 @@ fn play_card_effects(
 
     for _ in 0..repeat_count {
         for effect in effects {
-            effect_queue.push_back((effect.clone(), target));
+            // Only damage/power-targeting effects use the card's target.
+            // Self-targeting effects (Block, Draw, LoseHP, etc.) use NoTarget.
+            let effect_target = match effect {
+                Effect::Damage(_) | Effect::DamageFixed(_) | Effect::DamageAll(_)
+                | Effect::DamageBasedOn(_) | Effect::DamageFixedAll(_)
+                | Effect::StrengthIfTargetDead(_)
+                | Effect::FlameBarrier(_)
+                | Effect::DamageFixedTargetSelect { .. }
+                | Effect::ForEachInHand { .. }
+                | Effect::TickDownAttackPowers { .. }
+                | Effect::ChooseOne(_)
+                | Effect::XCost { .. }
+                | Effect::ConditionalOnDieRoll { .. } => target,
+                Effect::ApplyPower { target: EffectTarget::TargetEnemy, .. }
+                | Effect::ApplyPower { target: EffectTarget::AllEnemies, .. } => target,
+                _ => ResolvedTarget::NoTarget,
+            };
+            effect_queue.push_back((effect.clone(), effect_target));
         }
         if is_attack {
             effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));

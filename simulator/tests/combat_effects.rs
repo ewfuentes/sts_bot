@@ -64,6 +64,7 @@ fn combat_state_with_monsters(
             "player_block": block,
             "player_energy": energy,
             "player_powers": player_powers,
+            "die_roll": 1,
             "turn": 1
         }
     });
@@ -2838,6 +2839,7 @@ fn no_draw_power_expires_at_end_of_turn() {
             "player_block": 0,
             "player_energy": 3,
             "player_powers": player_powers,
+            "die_roll": 1,
             "turn": 1
         }
     });
@@ -2966,6 +2968,7 @@ fn combust_deals_damage_at_end_of_turn() {
             "player_block": 0,
             "player_energy": 3,
             "player_powers": player_powers,
+            "die_roll": 1,
             "turn": 1
         }
     });
@@ -3475,6 +3478,7 @@ fn player_defeat_on_zero_hp() {
             "player_block": 0,
             "player_energy": 3,
             "player_powers": [],
+            "die_roll": 1,
             "turn": 1
         }
     });
@@ -3550,6 +3554,7 @@ fn cultist_first_turn_incantation_then_dark_strike() {
             "player_block": 0,
             "player_energy": 3,
             "player_powers": [],
+            "die_roll": 1,
             "turn": 1
         }
     });
