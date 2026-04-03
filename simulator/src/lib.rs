@@ -1,5 +1,7 @@
 pub mod card_db;
+pub mod dungeon;
 pub mod effects;
+pub mod encounter_db;
 pub mod monster_db;
 pub mod power_db;
 mod action;

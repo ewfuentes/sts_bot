@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::action::Action;
 use crate::card_db;
+use crate::encounter_db;
 use crate::monster_db;
 use crate::power_db;
 use crate::effects::{DamageSource, Effect, EffectTarget, HandFilter, HandSelectAction, Pile, ResolvedTarget};
@@ -742,13 +743,56 @@ impl GameState {
                 }
                 self.set_screen(Screen::Complete);
             }
-            Action::TravelTo { kind, .. } => {
+            Action::TravelTo { kind, choice_index, .. } => {
                 self.floor += 1;
                 let kind = *kind;
+                let choice_idx = *choice_index as usize;
+
+                // Look up the encounter ID from the map node if available
+                let encounter_id = if let Screen::Map { available_nodes, .. } = self.current_screen() {
+                    if choice_idx < available_nodes.len() {
+                        let node_idx = available_nodes[choice_idx].node_index;
+                        self.map.as_ref()
+                            .and_then(|m| m.nodes.get(node_idx))
+                            .and_then(|n| n.encounter.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let screen = match kind {
-                    MapNodeKind::Monster => Screen::new_combat("UNKNOWN_MONSTER"),
-                    MapNodeKind::Elite => Screen::new_combat("UNKNOWN_ELITE"),
-                    MapNodeKind::Boss => Screen::new_combat("UNKNOWN_BOSS"),
+                    MapNodeKind::Monster | MapNodeKind::Elite | MapNodeKind::Boss => {
+                        let enc_id = encounter_id.as_deref().unwrap_or(match kind {
+                            MapNodeKind::Monster => "UNKNOWN_MONSTER",
+                            MapNodeKind::Elite => "UNKNOWN_ELITE",
+                            MapNodeKind::Boss => "UNKNOWN_BOSS",
+                            _ => unreachable!(),
+                        });
+                        let mut combat = Screen::new_combat(enc_id);
+                        // Populate monsters from encounter_db
+                        if let Some(enc) = encounter_db::lookup(enc_id) {
+                            if let Screen::Combat { monsters, .. } = &mut combat {
+                                for em in enc.monsters {
+                                    monsters.push(crate::types::Monster {
+                                        id: em.id.to_string(),
+                                        name: em.id.to_string(),
+                                        hp: em.hp,
+                                        max_hp: em.hp,
+                                        block: 0,
+                                        intent: "UNKNOWN".to_string(),
+                                        damage: None,
+                                        hits: 1,
+                                        powers: vec![],
+                                        is_gone: false,
+                                        move_index: em.move_index,
+                                    });
+                                }
+                            }
+                        }
+                        combat
+                    }
                     MapNodeKind::Rest => Screen::Rest {
                         options: vec!["rest".to_string(), "smith".to_string()],
                     },
@@ -757,6 +801,11 @@ impl GameState {
                     MapNodeKind::Event | MapNodeKind::Unknown => Screen::Complete,
                 };
                 self.set_screen(screen);
+
+                // Apply pre-battle starting effects for monsters
+                if matches!(kind, MapNodeKind::Monster | MapNodeKind::Elite | MapNodeKind::Boss) {
+                    self.apply_monster_starting_effects();
+                }
             }
             Action::PlayCard { hand_index, target_index, .. } => {
                 let hand_idx = *hand_index as usize;
@@ -1058,7 +1107,7 @@ impl GameState {
         if self.hp == 0 {
             self.set_screen(Screen::GameOver { victory: false });
         } else if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
-            if monsters.iter().all(|m| m.is_gone) {
+            if !monsters.is_empty() && monsters.iter().all(|m| m.is_gone) {
                 self.finish_combat();
             }
         }
@@ -1637,7 +1686,7 @@ impl GameState {
 
         // Check for combat end after each effect
         if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
-            if monsters.iter().all(|m| m.is_gone) {
+            if !monsters.is_empty() && monsters.iter().all(|m| m.is_gone) {
                 effect_queue.clear();
                 return EffectResult::CombatOver;
             }
