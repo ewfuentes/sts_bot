@@ -3560,7 +3560,13 @@ fn cultist_first_turn_incantation_then_dark_strike() {
     });
     let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
 
-    // Turn 1: Incantation (1 dmg, no Strength yet) + gains 1 Strength
+    // Apply pre-battle effects (Ritual)
+    state.apply_monster_starting_effects();
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert!(monsters[0].powers.iter().any(|p| p.id == "Ritual" && p.amount == 1));
+    }
+
+    // Turn 1: Incantation (1 dmg). Ritual fires at MonsterEndOfTurn → +1 Str.
     state.apply(&Action::EndTurn);
     assert_eq!(state.hp, 9); // 10 - 1
     if let Screen::Combat { monsters, .. } = state.current_screen() {
@@ -3572,7 +3578,7 @@ fn cultist_first_turn_incantation_then_dark_strike() {
         panic!("Expected Combat screen");
     }
 
-    // Turn 2: Dark Strike (1 base + 1 Str = 2 dmg) + gains 1 Strength
+    // Turn 2: Dark Strike (1 base + 1 Str = 2 dmg). Ritual fires → +1 Str.
     state.apply(&Action::EndTurn);
     assert_eq!(state.hp, 7); // 9 - 2
     if let Screen::Combat { monsters, .. } = state.current_screen() {

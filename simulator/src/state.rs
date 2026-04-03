@@ -219,6 +219,21 @@ impl GameState {
         Ok(state)
     }
 
+    /// Apply pre-battle starting effects for all monsters in combat.
+    /// Call this after monsters are populated and before the player's first action.
+    pub fn apply_monster_starting_effects(&mut self) {
+        if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
+            for (i, monster) in monsters.iter().enumerate() {
+                if let Some(info) = monster_db::lookup(&monster.id) {
+                    for effect in info.starting_effects {
+                        effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(i as u8)));
+                    }
+                }
+            }
+        }
+        self.drain_effect_queue();
+    }
+
     pub fn current_screen(&self) -> &Screen {
         static COMPLETE: Screen = Screen::Complete;
         self.screen.last().unwrap_or(&COMPLETE)
@@ -2337,24 +2352,7 @@ fn play_card_effects(
 
     for _ in 0..repeat_count {
         for effect in effects {
-            // Only damage/power-targeting effects use the card's target.
-            // Self-targeting effects (Block, Draw, LoseHP, etc.) use NoTarget.
-            let effect_target = match effect {
-                Effect::Damage(_) | Effect::DamageFixed(_) | Effect::DamageAll(_)
-                | Effect::DamageBasedOn(_) | Effect::DamageFixedAll(_)
-                | Effect::StrengthIfTargetDead(_)
-                | Effect::FlameBarrier(_)
-                | Effect::DamageFixedTargetSelect { .. }
-                | Effect::ForEachInHand { .. }
-                | Effect::TickDownAttackPowers { .. }
-                | Effect::ChooseOne(_)
-                | Effect::XCost { .. }
-                | Effect::ConditionalOnDieRoll { .. } => target,
-                Effect::ApplyPower { target: EffectTarget::TargetEnemy, .. }
-                | Effect::ApplyPower { target: EffectTarget::AllEnemies, .. } => target,
-                _ => ResolvedTarget::NoTarget,
-            };
-            effect_queue.push_back((effect.clone(), effect_target));
+            effect_queue.push_back((effect.clone(), target));
         }
         if is_attack {
             effect_queue.push_back((make_tick_down_attack_powers_effect(player_powers, monsters), target));

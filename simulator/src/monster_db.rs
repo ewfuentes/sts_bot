@@ -29,6 +29,8 @@ pub struct MonsterInfo {
     pub id: &'static str,
     pub moves: &'static [MonsterMove],
     pub pattern: MovePattern,
+    /// Effects applied at the start of combat (pre-battle).
+    pub starting_effects: &'static [Effect],
 }
 
 // ── Monster definitions ──
@@ -43,20 +45,15 @@ static MONSTERS: &[MonsterInfo] = &[
             },
         ],
         pattern: MovePattern::Fixed(0),
+        starting_effects: &[],
     },
     MonsterInfo {
         id: "BGCultist",
         moves: &[
-            // Move 0: Incantation (attack + gain Strength + apply Ritual)
-            // Ritual is applied here rather than pre-battle so it doesn't
-            // fire at MonsterEndOfTurn on the first turn.
+            // Move 0: Incantation (attack only — Ritual handles all Strength gain)
             MonsterMove {
                 name: "Incantation",
-                effects: &[
-                    Effect::Damage(1),
-                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
-                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Ritual", amount: 1 },
-                ],
+                effects: &[Effect::Damage(1)],
             },
             // Move 1: Dark Strike (attack only — Ritual handles Strength gain)
             MonsterMove {
@@ -65,6 +62,9 @@ static MONSTERS: &[MonsterInfo] = &[
             },
         ],
         pattern: MovePattern::FirstThenRepeat { first: 0, repeat: 1 },
+        starting_effects: &[
+            Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Ritual", amount: 1 },
+        ],
     },
     MonsterInfo {
         id: "BGJawWorm",
@@ -93,6 +93,7 @@ static MONSTERS: &[MonsterInfo] = &[
         ],
         // Behavior "sda": rolls 1-2 → Bellow(2), 3-4 → Thrash(1), 5-6 → Chomp(0)
         pattern: MovePattern::DieRoll3([2, 1, 0]),
+        starting_effects: &[],
     },
 ];
 
