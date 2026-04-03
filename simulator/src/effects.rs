@@ -143,10 +143,18 @@ pub enum HandFilter {
     NonAttacks,
 }
 
-/// Who an effect targets.
+/// Who an effect targets (used in static card/power definitions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EffectTarget {
     TargetEnemy,
     _Self,
     AllEnemies,
+}
+
+/// Resolved target for effects in the effect queue at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedTarget {
+    Monster(u8),
+    Player,
+    NoTarget,
 }

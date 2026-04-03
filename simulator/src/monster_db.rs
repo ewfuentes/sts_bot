@@ -1,18 +1,16 @@
-/// Monster move effects — what happens when a monster executes a move.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MonsterEffect {
-    DamagePlayer(i16),
-    DamagePlayerMulti { damage: i16, hits: u8 },
-    GainBlock(u16),
-    ApplyPowerToSelf { power_id: &'static str, amount: i16 },
-    ApplyPowerToPlayer { power_id: &'static str, amount: i16 },
-}
+use crate::effects::{Effect, EffectTarget};
 
 /// A single monster move (one entry in the move table).
 #[derive(Debug, Clone)]
 pub struct MonsterMove {
     pub name: &'static str,
-    pub effects: &'static [MonsterEffect],
+    /// Effects use the same Effect enum as cards. At execution time:
+    /// - Damage(n): calculated with monster as attacker, player as defender,
+    ///   then queued as DamageToPlayer
+    /// - Block(n): applied to the monster
+    /// - ApplyPower with _Self: applied to the monster
+    /// - ApplyPower with TargetEnemy: applied to the player
+    pub effects: &'static [Effect],
 }
 
 /// How a monster selects its next move.
@@ -41,7 +39,7 @@ static MONSTERS: &[MonsterInfo] = &[
         moves: &[
             MonsterMove {
                 name: "Tackle",
-                effects: &[MonsterEffect::DamagePlayer(1)],
+                effects: &[Effect::Damage(1)],
             },
         ],
         pattern: MovePattern::Fixed(0),
@@ -53,8 +51,8 @@ static MONSTERS: &[MonsterInfo] = &[
             MonsterMove {
                 name: "Incantation",
                 effects: &[
-                    MonsterEffect::DamagePlayer(1),
-                    MonsterEffect::ApplyPowerToSelf { power_id: "Strength", amount: 1 },
+                    Effect::Damage(1),
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
                 ],
             },
             // Move 1: Dark Strike (attack + gain Strength from Ritual)
@@ -63,8 +61,8 @@ static MONSTERS: &[MonsterInfo] = &[
             MonsterMove {
                 name: "Dark Strike",
                 effects: &[
-                    MonsterEffect::DamagePlayer(1),
-                    MonsterEffect::ApplyPowerToSelf { power_id: "Strength", amount: 1 },
+                    Effect::Damage(1),
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
                 ],
             },
         ],
@@ -76,22 +74,22 @@ static MONSTERS: &[MonsterInfo] = &[
             // Move 0: Chomp (attack)
             MonsterMove {
                 name: "Chomp",
-                effects: &[MonsterEffect::DamagePlayer(3)],
+                effects: &[Effect::Damage(3)],
             },
             // Move 1: Thrash (attack + block)
             MonsterMove {
                 name: "Thrash",
                 effects: &[
-                    MonsterEffect::DamagePlayer(2),
-                    MonsterEffect::GainBlock(2),
+                    Effect::Damage(2),
+                    Effect::Block(2),
                 ],
             },
             // Move 2: Bellow (block + Strength)
             MonsterMove {
                 name: "Bellow",
                 effects: &[
-                    MonsterEffect::GainBlock(2),
-                    MonsterEffect::ApplyPowerToSelf { power_id: "Strength", amount: 1 },
+                    Effect::Block(2),
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
                 ],
             },
         ],

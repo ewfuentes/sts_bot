@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::effects::{Effect, HandSelectAction};
+use crate::effects::{Effect, HandSelectAction, ResolvedTarget};
 use crate::map::MapNodeKind;
 use crate::types::{Card, Monster, Power};
 
@@ -55,10 +55,9 @@ pub enum Screen {
         /// The die roll for this turn (1-6). None if not yet rolled.
         #[serde(default)]
         die_roll: Option<u8>,
-        /// Queue of effects waiting to execute. Each entry is (effect, target_index).
-        /// Target is Some for single-target effects, None for AoE/self/untargeted.
+        /// Queue of effects waiting to execute.
         #[serde(skip)]
-        effect_queue: VecDeque<(Effect, Option<u8>)>,
+        effect_queue: VecDeque<(Effect, ResolvedTarget)>,
     },
     CardReward {
         cards: Vec<Card>,
