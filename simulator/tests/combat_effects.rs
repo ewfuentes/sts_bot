@@ -3589,3 +3589,83 @@ fn cultist_first_turn_incantation_then_dark_strike() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn monster_block_gained_then_decayed_next_turn() {
+    // Jaw Worm: turn 1 = Bellow (block + str), turn 2 = Chomp (attack only)
+    // Use die_roll=6 to get Chomp on turn 2
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": [{
+                "id": "BGJawWorm", "name": "Jaw Worm", "hp": 8, "max_hp": 8,
+                "block": 0, "intent": "DEFEND_BUFF", "damage": null, "hits": 1,
+                "powers": [], "is_gone": false, "move_index": 2
+            }],
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 6,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Turn 1: Bellow → gains 2 block + 1 Strength
+    state.apply(&Action::EndTurn);
+    // die_roll=6 → next move is Chomp (index 0), no block gain
+
+    // Turn 2: DecayMonsterBlock → block goes to 0, then Chomp (attack, no block)
+    state.apply(&Action::EndTurn);
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].block, 0, "Monster block should have decayed");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn monster_attack_ticks_down_player_vulnerable() {
+    // Player has Vulnerable, monster attacks → Vulnerable should tick down
+    let monsters = vec![make_monster("BGSpikeSlime_S", "Spike Slime", 3, 0, vec![])];
+    let player_powers = vec![make_power("BGVulnerable", 2)];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, player_powers);
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let vuln = player_powers.iter()
+            .find(|p| p.id == "BGVulnerable").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(vuln, 1, "Vulnerable should tick down by 1 after monster attack");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn monster_attack_ticks_down_monster_weakened() {
+    // Monster has Weakened, attacks → Weakened should tick down
+    let monsters = vec![make_monster("BGSpikeSlime_S", "Spike Slime", 3, 0,
+        vec![make_power("BGWeakened", 2)]
+    )];
+    let mut state = combat_state_with_monsters(vec![], monsters, 3, 0, vec![]);
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let weak = monsters[0].powers.iter()
+            .find(|p| p.id == "BGWeakened").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(weak, 1, "Monster Weakened should tick down by 1 after attacking");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
