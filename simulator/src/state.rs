@@ -1592,6 +1592,29 @@ impl GameState {
                 });
                 return EffectResult::Paused;
             }
+            Effect::TickDownMonsterAttackPowers { monster_had_weak, player_had_vuln } => {
+                if let ResolvedTarget::Monster(idx) = target {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
+                        if *monster_had_weak && idx < monsters.len() {
+                            apply_power(&mut monsters[idx].powers, "BGWeakened", -1);
+                        }
+                        if *player_had_vuln {
+                            apply_power(player_powers, "BGVulnerable", -1);
+                        }
+                    }
+                }
+            }
+            Effect::DecayMonsterBlock => {
+                if let ResolvedTarget::Monster(idx) = target {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                        if idx < monsters.len() && !monsters[idx].is_gone {
+                            monsters[idx].block = 0;
+                        }
+                    }
+                }
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
@@ -1647,7 +1670,7 @@ impl GameState {
     }
 
     fn execute_monster_turns(&mut self) {
-        if let Some(Screen::Combat { monsters, effect_queue, die_roll, turn, .. }) = self.find_combat_mut() {
+        if let Some(Screen::Combat { monsters, player_powers, effect_queue, die_roll, turn, .. }) = self.find_combat_mut() {
             let roll = die_roll.expect("die_roll must be set before EndTurn");
             let current_turn = *turn;
 
@@ -1659,9 +1682,18 @@ impl GameState {
                 let monster_idx = i as u8;
 
                 if let Some(info) = monster_db::lookup(&monster.id) {
-                    // 1. Queue current move effects
+                    // 1. Decay monster block at start of turn
+                    effect_queue.push_back((Effect::DecayMonsterBlock, ResolvedTarget::Monster(monster_idx)));
+
+                    // 2. Queue current move effects
                     let move_idx = monster.move_index as usize;
                     if let Some(monster_move) = info.moves.get(move_idx) {
+                        let is_attack = monster_move.effects.iter().any(|e| matches!(e, Effect::Damage(_)));
+
+                        // Snapshot Weak/Vuln for tick-down after attack
+                        let monster_had_weak = is_attack && monster.powers.iter().any(|p| p.id == "BGWeakened");
+                        let player_had_vuln = is_attack && player_powers.iter().any(|p| p.id == "BGVulnerable");
+
                         for effect in monster_move.effects {
                             match effect {
                                 Effect::Damage(base) => {
@@ -1678,9 +1710,17 @@ impl GameState {
                                 }
                             }
                         }
+
+                        // Tick down Weak/Vuln after monster attack
+                        if is_attack {
+                            effect_queue.push_back((
+                                Effect::TickDownMonsterAttackPowers { monster_had_weak, player_had_vuln },
+                                ResolvedTarget::Monster(monster_idx),
+                            ));
+                        }
                     }
 
-                    // 2. Queue monster EndOfTurn power triggers (e.g., Ritual → Strength)
+                    // 3. Queue monster EndOfTurn power triggers (e.g., Ritual → Strength)
                     let triggered = power_db::collect_triggered_effects(
                         power_db::PowerTrigger::MonsterEndOfTurn,
                         &monster.powers,
