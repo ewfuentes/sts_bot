@@ -3703,3 +3703,42 @@ fn curl_up_triggers_only_once_on_multi_hit() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn angry_triggers_on_attack_not_on_fixed_damage() {
+    // Angry Gremlin gains Strength when hit by an Attack card,
+    // but NOT from non-attack damage (e.g. BGCombust's DamageFixedAll).
+    let monsters = vec![make_monster("BGGremlinAngry", "Angry Gremlin", 10, 0, vec![make_power("Angry", 1)])];
+    let hand = vec![
+        HandCard { card: make_card("BGStrike_R", 1, "ATTACK") },
+    ];
+    let player_powers = vec![make_power("BGCombust", 1)];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
+
+    // Play Strike → Attack damage → Angry triggers → +1 Strength
+    state.apply(&Action::PlayCard {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Angry Gremlin".into()),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let str_amount = monsters[0].powers.iter()
+            .find(|p| p.id == "Strength").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(str_amount, 1, "Angry should trigger once from Attack card");
+    } else {
+        panic!("Expected Combat screen");
+    }
+
+    // End turn → BGCombust fires DamageFixedAll(1) → non-attack damage → Angry should NOT trigger
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let str_amount = monsters[0].powers.iter()
+            .find(|p| p.id == "Strength").map(|p| p.amount).unwrap_or(0);
+        assert_eq!(str_amount, 1, "Angry should NOT trigger from BGCombust fixed damage");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
