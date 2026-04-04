@@ -192,6 +192,29 @@ static POWERS: &[PowerInfo] = &[
         }],
         modifiers: &[],
     },
+    // Boss powers
+    PowerInfo {
+        id: "BGSplit",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnDeath,
+            effects: &[
+                Effect::SpawnMonster { id: "BGAcidSlime_L", hp: 12 },
+                Effect::SpawnMonster { id: "BGAcidSlime_M", hp: 5 },
+                Effect::SpawnMonster { id: "BGSpikeSlime_M", hp: 5 },
+            ],
+            remove_after_trigger: false,
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "BGSharpHide",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnAttacked,
+            effects: &[Effect::LoseHP(0)],
+            remove_after_trigger: false,
+        }],
+        modifiers: &[],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static PowerInfo> {
@@ -302,6 +325,7 @@ fn substitute_amount(effect: &Effect, power: &crate::types::Power) -> Effect {
     match effect {
         Effect::Block(0) => Effect::Block(amt as i16),
         Effect::MonsterBlock(0) => Effect::MonsterBlock(amt as u16),
+        Effect::LoseHP(0) => Effect::LoseHP(amt as u16),
         Effect::Draw(0) => Effect::Draw(amt as u8),
         Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amt as i16),
         Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending } => {
