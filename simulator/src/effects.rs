@@ -121,6 +121,8 @@ pub enum Effect {
     TickDownMonsterAttackPowers { monster_had_weak: bool, player_had_vuln: bool },
     /// Monster escapes from combat (set is_gone = true).
     MonsterEscape,
+    /// Spawn a new monster into the current combat.
+    SpawnMonster { id: &'static str, hp: u16 },
     Custom(&'static str),
 }
 

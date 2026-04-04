@@ -421,6 +421,11 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("Dazed", -2, CardType::Status, CardTarget::None, &[])
             .ethereal(),
         CardInfo::new("Wound", -2, CardType::Status, CardTarget::None, &[]),
+        // BGBurn: Unplayable. At end of turn, deal 1 damage to player.
+        CardInfo::new("BGBurn", -2, CardType::Status, CardTarget::None, &[]),
+        // BGSlimed: Cost 1, Exhaust. Must pay energy to exhaust when drawn.
+        CardInfo::new("BGSlimed", 1, CardType::Status, CardTarget::None, &[])
+            .exhaust(),
         CardInfo::new("AscendersBane", -2, CardType::Curse, CardTarget::None, &[])
             .ethereal(),
     ];

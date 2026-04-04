@@ -76,7 +76,12 @@ const PLAYABLE_ENCOUNTERS: &[(&str, &str, MapNodeKind)] = &[
     ("Gremlin Nob", "BoardGame:Gremlin Nob", MapNodeKind::Elite),
     ("Lagavulin", "BoardGame:Lagavulin", MapNodeKind::Elite),
     ("3 Sentries", "BoardGame:3 Sentries", MapNodeKind::Elite),
-    // Rest
+    // Bosses
+    ("The Guardian", "BoardGame:TheGuardian", MapNodeKind::Boss),
+    ("Hexaghost", "BoardGame:Hexaghost", MapNodeKind::Boss),
+    ("Slime Boss", "BoardGame:SlimeBoss", MapNodeKind::Boss),
+    // Other
+    ("Large Slime", "BoardGame:Large Slime", MapNodeKind::Monster),
     ("Rest", "", MapNodeKind::Rest),
 ];
 
