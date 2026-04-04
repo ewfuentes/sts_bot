@@ -247,9 +247,10 @@ impl GameState {
                     if monster.pattern == monster_db::MovePattern::default() {
                         monster.pattern = info.pattern;
                     }
-                    let move_idx = monster_db::next_move(monster.pattern, roll, 1);
+                    let move_idx = monster_db::next_move(monster.pattern, roll, 1, monster.move_index);
                     monster.move_index = move_idx;
-                    update_monster_display(monster, info, move_idx);
+                    let actual_move = monster_db::resolve_move_index(monster.pattern, move_idx);
+                    update_monster_display(monster, info, actual_move);
                 }
             }
 
@@ -856,9 +857,14 @@ impl GameState {
                         if let Some(enc) = encounter_db::lookup(enc_id) {
                             if let Screen::Combat { monsters, rng, .. } = &mut combat {
                                 for em in enc.monsters {
-                                    // Copy pattern from monster_db, shuffling DieRoll3 per instance
+                                    // Copy pattern from monster_db, shuffling die roll indices per instance
                                     let pattern = if let Some(info) = monster_db::lookup(em.id) {
                                         match info.pattern {
+                                            monster_db::MovePattern::DieRoll2(indices) => {
+                                                let mut shuffled = indices;
+                                                rng.shuffle(&mut shuffled);
+                                                monster_db::MovePattern::DieRoll2(shuffled)
+                                            }
                                             monster_db::MovePattern::DieRoll3(indices) => {
                                                 let mut shuffled = indices;
                                                 rng.shuffle(&mut shuffled);
@@ -944,6 +950,17 @@ impl GameState {
                             exhaust: does_exhaust,
                             rebound: does_rebound,
                         }, ResolvedTarget::NoTarget));
+                    }
+
+                    // Fire card-type triggers (e.g. BGAngerPower on Skill play)
+                    let card_type = info.card_type;
+                    if card_type == card_db::CardType::Skill {
+                        let triggered = power_db::collect_all_triggered_effects(
+                            power_db::PowerTrigger::PlayerOnPlaySkill,
+                            player_powers,
+                            monsters,
+                        );
+                        queue_triggered(effect_queue, triggered);
                     }
                 }
 
@@ -1243,15 +1260,30 @@ impl GameState {
                 }
             }
             Effect::DamageFixed(amount) => {
-                if let ResolvedTarget::Monster(idx) = target {
-                    let idx = idx as usize;
-                    let mut result = DamageResult { took_damage: false, died: false };
-                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
-                        if idx < monsters.len() && !monsters[idx].is_gone {
-                            result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                match target {
+                    ResolvedTarget::Monster(idx) => {
+                        let idx = idx as usize;
+                        let mut result = DamageResult { took_damage: false, died: false };
+                        if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                            if idx < monsters.len() && !monsters[idx].is_gone {
+                                result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                            }
+                        }
+                        self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::NonAttack);
+                    }
+                    ResolvedTarget::Player | ResolvedTarget::NoTarget => {
+                        // Blockable damage to the player (e.g. BGAngerPower thorns)
+                        let dmg = *amount as u16;
+                        if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
+                            if dmg <= *player_block {
+                                *player_block -= dmg;
+                            } else {
+                                let remaining = dmg - *player_block;
+                                *player_block = 0;
+                                self.hp = self.hp.saturating_sub(remaining);
+                            }
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::NonAttack);
                 }
             }
             Effect::DamageAll(amount) => {
@@ -1785,6 +1817,19 @@ impl GameState {
                     }
                 }
             }
+            Effect::MonsterEscape => {
+                if let ResolvedTarget::Monster(idx) = target {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                        if idx < monsters.len() {
+                            monsters[idx].is_gone = true;
+                        }
+                    }
+                }
+            }
+            Effect::StealGold(amount) => {
+                self.gold = self.gold.saturating_sub(*amount);
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
@@ -1856,7 +1901,7 @@ impl GameState {
                     effect_queue.push_back((Effect::DecayMonsterBlock, ResolvedTarget::Monster(monster_idx)));
 
                     // 2. Queue current move effects
-                    let move_idx = monster.move_index as usize;
+                    let move_idx = monster_db::resolve_move_index(info.pattern, monster.move_index) as usize;
                     if let Some(monster_move) = info.moves.get(move_idx) {
                         let is_attack = monster_move.effects.iter().any(|e| matches!(e, Effect::Damage(_)));
 
@@ -1877,6 +1922,12 @@ impl GameState {
                                 }
                                 Effect::AddCardToPile { .. } => {
                                     // Adds status cards to player's piles
+                                    effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
+                                }
+                                Effect::MonsterEscape => {
+                                    effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
+                                }
+                                Effect::StealGold(_) => {
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
                                 }
                                 _ => {
@@ -1903,9 +1954,10 @@ impl GameState {
                     queue_triggered(effect_queue, triggered);
 
                     // 3. Determine next move
-                    let next_idx = monster_db::next_move(monster.pattern, roll, current_turn + 1);
+                    let next_idx = monster_db::next_move(monster.pattern, roll, current_turn + 1, monster.move_index);
                     monster.move_index = next_idx;
-                    update_monster_display(monster, info, next_idx);
+                    let actual_move = monster_db::resolve_move_index(monster.pattern, next_idx);
+                    update_monster_display(monster, info, actual_move);
                 }
             }
         }

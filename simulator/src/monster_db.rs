@@ -13,15 +13,31 @@ pub struct MonsterMove {
     pub effects: &'static [Effect],
 }
 
+/// A single state in a monster state machine.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SmState {
+    pub move_index: u8,
+    pub next_state: u8,
+}
+
 /// How a monster selects its next move.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MovePattern {
+    /// Die roll mapping: 1-3 → indices[0], 4-6 → indices[1]
+    DieRoll2([u8; 2]),
     /// Die roll mapping: 1-2 → indices[0], 3-4 → indices[1], 5-6 → indices[2]
     DieRoll3([u8; 3]),
     /// First turn uses `first`, all subsequent turns use `repeat`.
     FirstThenRepeat { first: u8, repeat: u8 },
     /// Always the same move.
     Fixed(u8),
+    /// Cycle through a fixed sequence of move indices, repeating from the start.
+    Sequence(&'static [u8]),
+    /// State machine: each state maps to a move index and a default next state.
+    /// The monster's `move_index` field tracks the current state.
+    StateMachine {
+        states: &'static [SmState],
+    },
 }
 
 impl Default for MovePattern {
@@ -259,6 +275,114 @@ static MONSTERS: &[MonsterInfo] = &[
         pattern: MovePattern::DieRoll3([0, 1, 2]),
         starting_effects: &[],
     },
+    // ── Phase 2: Sequence/StateMachine/Escape monsters ──
+    MonsterInfo {
+        id: "BGGremlinNob",
+        moves: &[
+            MonsterMove {
+                name: "Bellow",
+                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGAnger", amount: 1 }],
+            },
+            MonsterMove {
+                name: "Skull Bash",
+                effects: &[Effect::Damage(3)],
+            },
+        ],
+        pattern: MovePattern::FirstThenRepeat { first: 0, repeat: 1 },
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGLooter",
+        moves: &[
+            MonsterMove {
+                name: "Mug",
+                effects: &[Effect::Damage(2)],
+            },
+            MonsterMove {
+                name: "Smoke Bomb",
+                effects: &[
+                    Effect::Damage(3),
+                    Effect::MonsterBlock(1),
+                ],
+            },
+            MonsterMove {
+                name: "Escape",
+                effects: &[Effect::StealGold(2), Effect::MonsterEscape],
+            },
+        ],
+        pattern: MovePattern::Sequence(&[0, 1, 2]),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGGremlinSneaky",
+        moves: &[
+            MonsterMove {
+                name: "Puncture",
+                effects: &[Effect::Damage(2)],
+            },
+        ],
+        pattern: MovePattern::Fixed(0),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGGremlinAngry",
+        moves: &[
+            MonsterMove {
+                name: "Scratch",
+                effects: &[Effect::Damage(1)],
+            },
+        ],
+        pattern: MovePattern::Fixed(0),
+        starting_effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Angry", amount: 1 }],
+    },
+    MonsterInfo {
+        id: "BGSentry",
+        moves: &[
+            MonsterMove {
+                name: "Daze",
+                effects: &[Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }],
+            },
+            MonsterMove {
+                name: "Beam",
+                effects: &[Effect::Damage(2)],
+            },
+        ],
+        pattern: MovePattern::DieRoll2([0, 1]),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGLagavulin",
+        moves: &[
+            // Move 0: Sleep (no effects — waking up)
+            MonsterMove {
+                name: "Sleep",
+                effects: &[],
+            },
+            // Move 1: Strong Attack
+            MonsterMove {
+                name: "Strong Attack",
+                effects: &[Effect::Damage(4)],
+            },
+            // Move 2: Siphon Soul — Weak(2) to player + Strength(1) to self
+            MonsterMove {
+                name: "Siphon Soul",
+                effects: &[
+                    Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id: "BGWeakened", amount: 2 },
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
+                ],
+            },
+        ],
+        // State machine: Sleep(0) → Attack(1) → Attack(2) → Debuff(3) → Attack(1) ...
+        pattern: MovePattern::StateMachine {
+            states: &[
+                SmState { move_index: 0, next_state: 1 }, // State 0: Sleep → state 1
+                SmState { move_index: 1, next_state: 2 }, // State 1: Attack → state 2
+                SmState { move_index: 1, next_state: 3 }, // State 2: Attack → state 3
+                SmState { move_index: 2, next_state: 1 }, // State 3: Debuff → state 1
+            ],
+        },
+        starting_effects: &[],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static MonsterInfo> {
@@ -266,11 +390,17 @@ pub fn lookup(id: &str) -> Option<&'static MonsterInfo> {
 }
 
 /// Determine the next move index based on the monster's pattern and die roll.
-pub fn next_move(pattern: MovePattern, die_roll: u8, turn: u16) -> u8 {
+/// For StateMachine, this returns the *next state* (not the move table index).
+/// Use `resolve_move_index` to get the actual move table index from a state.
+pub fn next_move(pattern: MovePattern, die_roll: u8, turn: u16, current_state: u8) -> u8 {
     match pattern {
         MovePattern::Fixed(idx) => idx,
         MovePattern::FirstThenRepeat { first, repeat } => {
             if turn == 1 { first } else { repeat }
+        }
+        MovePattern::DieRoll2(indices) => {
+            let bucket = if die_roll <= 3 { 0 } else { 1 };
+            indices[bucket]
         }
         MovePattern::DieRoll3(indices) => {
             let bucket = match die_roll {
@@ -281,5 +411,29 @@ pub fn next_move(pattern: MovePattern, die_roll: u8, turn: u16) -> u8 {
             };
             indices[bucket]
         }
+        MovePattern::Sequence(indices) => {
+            indices[((turn - 1) as usize) % indices.len()]
+        }
+        MovePattern::StateMachine { states, .. } => {
+            // Return the next state after the current one
+            if let Some(state) = states.get(current_state as usize) {
+                state.next_state
+            } else {
+                0
+            }
+        }
+    }
+}
+
+/// For StateMachine patterns, resolve the actual move table index from a state.
+/// For all other patterns, the move_index IS the move table index.
+pub fn resolve_move_index(pattern: MovePattern, move_index: u8) -> u8 {
+    match pattern {
+        MovePattern::StateMachine { states, .. } => {
+            states.get(move_index as usize)
+                .map(|s| s.move_index)
+                .unwrap_or(0)
+        }
+        _ => move_index,
     }
 }
