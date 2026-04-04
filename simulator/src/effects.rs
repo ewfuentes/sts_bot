@@ -121,6 +121,8 @@ pub enum Effect {
     TickDownMonsterAttackPowers { monster_had_weak: bool, player_had_vuln: bool },
     /// Monster escapes from combat (set is_gone = true).
     MonsterEscape,
+    /// Monster steals gold from the player.
+    StealGold(u16),
     Custom(&'static str),
 }
 

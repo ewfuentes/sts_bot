@@ -20,16 +20,11 @@ pub struct SmState {
     pub next_state: u8,
 }
 
-/// Triggers that can override state machine transitions.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SmTrigger {
-    /// When this monster's block reaches 0 from damage, override to next_state.
-    OnBlockBreak { next_state: u8 },
-}
-
 /// How a monster selects its next move.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MovePattern {
+    /// Die roll mapping: 1-3 → indices[0], 4-6 → indices[1]
+    DieRoll2([u8; 2]),
     /// Die roll mapping: 1-2 → indices[0], 3-4 → indices[1], 5-6 → indices[2]
     DieRoll3([u8; 3]),
     /// First turn uses `first`, all subsequent turns use `repeat`.
@@ -42,7 +37,6 @@ pub enum MovePattern {
     /// The monster's `move_index` field tracks the current state.
     StateMachine {
         states: &'static [SmState],
-        triggers: &'static [SmTrigger],
     },
 }
 
@@ -287,14 +281,11 @@ static MONSTERS: &[MonsterInfo] = &[
         moves: &[
             MonsterMove {
                 name: "Bellow",
-                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 }],
+                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGAnger", amount: 1 }],
             },
             MonsterMove {
                 name: "Skull Bash",
-                effects: &[
-                    Effect::Damage(3),
-                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
-                ],
+                effects: &[Effect::Damage(3)],
             },
         ],
         pattern: MovePattern::FirstThenRepeat { first: 0, repeat: 1 },
@@ -316,7 +307,7 @@ static MONSTERS: &[MonsterInfo] = &[
             },
             MonsterMove {
                 name: "Escape",
-                effects: &[Effect::MonsterEscape],
+                effects: &[Effect::StealGold(2), Effect::MonsterEscape],
             },
         ],
         pattern: MovePattern::Sequence(&[0, 1, 2]),
@@ -355,12 +346,8 @@ static MONSTERS: &[MonsterInfo] = &[
                 name: "Beam",
                 effects: &[Effect::Damage(2)],
             },
-            MonsterMove {
-                name: "Beam",
-                effects: &[Effect::Damage(3)],
-            },
         ],
-        pattern: MovePattern::DieRoll3([0, 1, 2]),
+        pattern: MovePattern::DieRoll2([0, 1]),
         starting_effects: &[],
     },
     MonsterInfo {
@@ -393,7 +380,6 @@ static MONSTERS: &[MonsterInfo] = &[
                 SmState { move_index: 1, next_state: 3 }, // State 2: Attack → state 3
                 SmState { move_index: 2, next_state: 1 }, // State 3: Debuff → state 1
             ],
-            triggers: &[],
         },
         starting_effects: &[],
     },
@@ -411,6 +397,10 @@ pub fn next_move(pattern: MovePattern, die_roll: u8, turn: u16, current_state: u
         MovePattern::Fixed(idx) => idx,
         MovePattern::FirstThenRepeat { first, repeat } => {
             if turn == 1 { first } else { repeat }
+        }
+        MovePattern::DieRoll2(indices) => {
+            let bucket = if die_roll <= 3 { 0 } else { 1 };
+            indices[bucket]
         }
         MovePattern::DieRoll3(indices) => {
             let bucket = match die_roll {

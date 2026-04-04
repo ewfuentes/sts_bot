@@ -14,6 +14,8 @@ pub enum PowerTrigger {
     /// Monster was hit by a player Attack card (Angry).
     MonsterOnAttacked,
     MonsterOnDeath,
+    /// Player played a Skill card (BGAngerPower/Enraged).
+    PlayerOnPlaySkill,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +196,15 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::MonsterOnAttacked,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            front_effects: &[],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "BGAnger",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::PlayerOnPlaySkill,
+            effects: &[Effect::LoseHP(0)],
             front_effects: &[],
         }],
         modifiers: &[],

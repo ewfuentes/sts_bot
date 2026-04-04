@@ -857,9 +857,14 @@ impl GameState {
                         if let Some(enc) = encounter_db::lookup(enc_id) {
                             if let Screen::Combat { monsters, rng, .. } = &mut combat {
                                 for em in enc.monsters {
-                                    // Copy pattern from monster_db, shuffling DieRoll3 per instance
+                                    // Copy pattern from monster_db, shuffling die roll indices per instance
                                     let pattern = if let Some(info) = monster_db::lookup(em.id) {
                                         match info.pattern {
+                                            monster_db::MovePattern::DieRoll2(indices) => {
+                                                let mut shuffled = indices;
+                                                rng.shuffle(&mut shuffled);
+                                                monster_db::MovePattern::DieRoll2(shuffled)
+                                            }
                                             monster_db::MovePattern::DieRoll3(indices) => {
                                                 let mut shuffled = indices;
                                                 rng.shuffle(&mut shuffled);
@@ -945,6 +950,17 @@ impl GameState {
                             exhaust: does_exhaust,
                             rebound: does_rebound,
                         }, ResolvedTarget::NoTarget));
+                    }
+
+                    // Fire card-type triggers (e.g. BGAngerPower on Skill play)
+                    let card_type = info.card_type;
+                    if card_type == card_db::CardType::Skill {
+                        let triggered = power_db::collect_all_triggered_effects(
+                            power_db::PowerTrigger::PlayerOnPlaySkill,
+                            player_powers,
+                            monsters,
+                        );
+                        queue_triggered(effect_queue, triggered);
                     }
                 }
 
@@ -1787,7 +1803,17 @@ impl GameState {
                 }
             }
             Effect::MonsterEscape => {
-                // Handled inline in execute_monster_turns, not via effect queue
+                if let ResolvedTarget::Monster(idx) = target {
+                    let idx = idx as usize;
+                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                        if idx < monsters.len() {
+                            monsters[idx].is_gone = true;
+                        }
+                    }
+                }
+            }
+            Effect::StealGold(amount) => {
+                self.gold = self.gold.saturating_sub(*amount);
             }
             Effect::Custom(_id) => {
                 // Not yet implemented
@@ -1883,8 +1909,8 @@ impl GameState {
                                     // Adds status cards to player's piles
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
                                 }
-                                Effect::MonsterEscape => {
-                                    monster.is_gone = true;
+                                Effect::MonsterEscape | Effect::StealGold(_) => {
+                                    effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
                                 }
                                 _ => {
                                     panic!("Unexpected effect in monster move: {:?}", effect);
