@@ -1,5 +1,5 @@
 /// Xoshiro256++ PRNG — fast, high-quality, reproducible from a seed.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Rng {
     s: [u64; 4],
 }
@@ -34,11 +34,13 @@ impl Rng {
     }
 
     /// Generate a uniform random number in [0, n).
+    /// Panics if n == 0.
     pub fn gen_range(&mut self, n: u64) -> u64 {
-        if n <= 1 {
+        assert!(n > 0, "gen_range(0) is invalid: empty range");
+        if n == 1 {
             return 0;
         }
-        // Debiased modulo (Lemire's method simplified)
+        // Debiased rejection sampling
         loop {
             let x = self.next_u64();
             let r = x % n;
@@ -48,8 +50,9 @@ impl Rng {
         }
     }
 
-    /// Roll a die (1..=sides).
+    /// Roll a die (1..=sides). Panics if sides == 0.
     pub fn roll_die(&mut self, sides: u8) -> u8 {
+        assert!(sides > 0, "roll_die(0) is invalid: zero-sided die");
         (self.gen_range(sides as u64) + 1) as u8
     }
 
@@ -64,6 +67,14 @@ impl Rng {
     /// Derive a child seed (for per-node RNGs).
     pub fn derive_seed(&mut self) -> u64 {
         self.next_u64()
+    }
+}
+
+impl Default for Rng {
+    /// Default RNG seeded from 0. Avoids the all-zeros absorbing state
+    /// that would produce degenerate output forever.
+    fn default() -> Self {
+        Rng::from_seed(0)
     }
 }
 
@@ -121,5 +132,37 @@ mod tests {
         rng.shuffle(&mut items);
         items.sort();
         assert_eq!(items, vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn default_is_not_degenerate() {
+        let mut rng = Rng::default();
+        // Default should produce non-zero output (not the all-zeros absorbing state)
+        let vals: Vec<u64> = (0..10).map(|_| rng.next_u64()).collect();
+        assert!(vals.iter().any(|&v| v != 0));
+    }
+
+    #[test]
+    fn gen_range_covers_all_values() {
+        let mut rng = Rng::from_seed(999);
+        let mut seen = [false; 6];
+        for _ in 0..1000 {
+            seen[rng.gen_range(6) as usize] = true;
+        }
+        assert!(seen.iter().all(|&s| s), "gen_range(6) should hit all values 0..6");
+    }
+
+    #[test]
+    #[should_panic]
+    fn gen_range_zero_panics() {
+        let mut rng = Rng::from_seed(0);
+        rng.gen_range(0);
+    }
+
+    #[test]
+    #[should_panic]
+    fn roll_die_zero_panics() {
+        let mut rng = Rng::from_seed(0);
+        rng.roll_die(0);
     }
 }

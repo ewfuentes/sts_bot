@@ -745,14 +745,11 @@ impl GameState {
                 let (encounter_id, node_seed) = if let Screen::Map { available_nodes, .. } = self.current_screen() {
                     if choice_idx < available_nodes.len() {
                         let node_idx = available_nodes[choice_idx].node_index;
-                        let enc = self.map.as_ref()
-                            .and_then(|m| m.nodes.get(node_idx))
-                            .and_then(|n| n.encounter.clone());
-                        let seed = self.map.as_ref()
-                            .and_then(|m| m.nodes.get(node_idx))
-                            .map(|n| n.seed)
-                            .unwrap_or(0);
-                        (enc, seed)
+                        if let Some(node) = self.map.as_ref().and_then(|m| m.nodes.get(node_idx)) {
+                            (node.encounter.clone(), node.seed)
+                        } else {
+                            (None, 0)
+                        }
                     } else {
                         (None, 0)
                     }
