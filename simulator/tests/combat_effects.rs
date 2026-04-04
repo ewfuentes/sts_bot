@@ -29,6 +29,7 @@ fn make_monster(id: &str, name: &str, hp: u16, block: u16, powers: Vec<Power>) -
         powers,
         is_gone: false,
         move_index: 0,
+        pattern: Default::default(),
     }
 }
 

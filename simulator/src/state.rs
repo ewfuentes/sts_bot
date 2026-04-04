@@ -240,10 +240,14 @@ impl GameState {
             let roll = rng.roll_die(6);
             *die_roll = Some(roll);
 
-            // Resolve initial monster intents using the die roll
+            // Resolve patterns and initial monster intents
             for monster in monsters.iter_mut() {
                 if let Some(info) = monster_db::lookup(&monster.id) {
-                    let move_idx = monster_db::next_move(info.pattern, roll, 1);
+                    // Initialize pattern from monster_db if not already set (e.g. deserialized)
+                    if monster.pattern == monster_db::MovePattern::default() {
+                        monster.pattern = info.pattern;
+                    }
+                    let move_idx = monster_db::next_move(monster.pattern, roll, 1);
                     monster.move_index = move_idx;
                     update_monster_display(monster, info, move_idx);
                 }
@@ -258,8 +262,12 @@ impl GameState {
 
     pub fn apply_monster_starting_effects(&mut self) {
         if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
-            for (i, monster) in monsters.iter().enumerate() {
+            for (i, monster) in monsters.iter_mut().enumerate() {
                 if let Some(info) = monster_db::lookup(&monster.id) {
+                    // Initialize pattern from monster_db if not already set
+                    if monster.pattern == monster_db::MovePattern::default() {
+                        monster.pattern = info.pattern;
+                    }
                     for effect in info.starting_effects {
                         effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(i as u8)));
                     }
@@ -270,9 +278,9 @@ impl GameState {
     }
 
     /// Queue reactive power triggers after a monster takes damage or dies.
-    /// `was_attacked` means damage came from a player Attack card (triggers Angry).
-    /// `took_damage` means HP was reduced from any source (triggers CurlUp).
-    fn queue_monster_reactive_triggers(&mut self, monster_idx: u8, result: &DamageResult) {
+    /// `is_attack` indicates the damage came from an Attack effect (triggers Angry)
+    /// vs a non-attack Damage effect (only triggers CurlUp).
+    fn queue_monster_reactive_triggers(&mut self, monster_idx: u8, result: &DamageResult, kind: DamageKind) {
         if !result.took_damage && !result.died {
             return;
         }
@@ -292,7 +300,7 @@ impl GameState {
                 }
             }
 
-            if result.was_attacked {
+            if matches!(kind, DamageKind::Attack) && result.took_damage {
                 let effects = power_db::collect_triggered_effects(
                     power_db::PowerTrigger::MonsterOnAttacked,
                     &monsters[idx].powers,
@@ -847,8 +855,21 @@ impl GameState {
                         let mut combat = Screen::new_combat(enc_id, node_seed);
                         // Populate monsters from encounter_db
                         if let Some(enc) = encounter_db::lookup(enc_id) {
-                            if let Screen::Combat { monsters, .. } = &mut combat {
+                            if let Screen::Combat { monsters, rng, .. } = &mut combat {
                                 for em in enc.monsters {
+                                    // Copy pattern from monster_db, shuffling DieRoll3 per instance
+                                    let pattern = if let Some(info) = monster_db::lookup(em.id) {
+                                        match info.pattern {
+                                            monster_db::MovePattern::DieRoll3(indices) => {
+                                                let mut shuffled = indices;
+                                                rng.shuffle(&mut shuffled);
+                                                monster_db::MovePattern::DieRoll3(shuffled)
+                                            }
+                                            other => other,
+                                        }
+                                    } else {
+                                        monster_db::MovePattern::default()
+                                    };
                                     monsters.push(crate::types::Monster {
                                         id: em.id.to_string(),
                                         name: em.id.to_string(),
@@ -861,6 +882,7 @@ impl GameState {
                                         powers: vec![],
                                         is_gone: false,
                                         move_index: em.move_index,
+                                        pattern,
                                     });
                                 }
                             }
@@ -1213,28 +1235,26 @@ impl GameState {
             Effect::Damage(amount) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = DamageResult { took_damage: false, was_attacked: true, died: false };
+                    let mut result = DamageResult { took_damage: false, died: false };
                     if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             let dmg = calculate_damage(*amount, player_powers, &monsters[idx].powers);
                             result = apply_damage_to_monster(&mut monsters[idx], dmg);
-                            result.was_attacked = true;
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, &result);
+                    self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::Attack);
                 }
             }
             Effect::DamageFixed(amount) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = DamageResult { took_damage: false, was_attacked: true, died: false };
+                    let mut result = DamageResult { took_damage: false, died: false };
                     if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
-                            result.was_attacked = true;
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, &result);
+                    self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::NonAttack);
                 }
             }
             Effect::DamageAll(amount) => {
@@ -1243,20 +1263,19 @@ impl GameState {
                     for (i, monster) in monsters.iter_mut().enumerate() {
                         if !monster.is_gone {
                             let dmg = calculate_damage(*amount, player_powers, &monster.powers);
-                            let mut result = apply_damage_to_monster(monster, dmg);
-                            result.was_attacked = true;
+                            let result = apply_damage_to_monster(monster, dmg);
                             triggers.push((i as u8, result));
                         }
                     }
                 }
                 for (idx, result) in &triggers {
-                    self.queue_monster_reactive_triggers(*idx, result);
+                    self.queue_monster_reactive_triggers(*idx, result, DamageKind::Attack);
                 }
             }
             Effect::DamageBasedOn(source) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = DamageResult { took_damage: false, was_attacked: true, died: false };
+                    let mut result = DamageResult { took_damage: false, died: false };
                     if let Some(Screen::Combat { monsters, player_block, exhaust_pile, hand, player_powers, .. }) = self.find_combat_mut() {
                         let base_amount = match source {
                             DamageSource::ExhaustPileSize => exhaust_pile.len() as i16,
@@ -1278,10 +1297,9 @@ impl GameState {
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             let dmg = calculate_damage(base_amount, player_powers, &monsters[idx].powers);
                             result = apply_damage_to_monster(&mut monsters[idx], dmg);
-                            result.was_attacked = true;
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, &result);
+                    self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::Attack);
                 }
             }
             Effect::StrengthIfTargetDead(amount) => {
@@ -1699,7 +1717,7 @@ impl GameState {
                     }
                 }
                 for (idx, result) in &triggers {
-                    self.queue_monster_reactive_triggers(*idx, result);
+                    self.queue_monster_reactive_triggers(*idx, result, DamageKind::NonAttack);
                 }
             }
             Effect::PlayLastDrawnFromHand => {
@@ -1867,12 +1885,15 @@ impl GameState {
                                 Effect::MonsterBlock(_) => {
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
                                 }
-                                Effect::ApplyPower { target: EffectTarget::TargetEnemy, .. } => {
-                                    // Monster debuffs the player
-                                    effect_queue.push_back((effect.clone(), ResolvedTarget::Player));
+                                Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id, amount } => {
+                                    // Monster debuffs the player — resolve to _Self + Player
+                                    effect_queue.push_back((
+                                        Effect::ApplyPower { target: EffectTarget::_Self, power_id, amount: *amount },
+                                        ResolvedTarget::Player,
+                                    ));
                                 }
                                 Effect::ApplyPower { .. } => {
-                                    // Monster buffs itself (_Self)
+                                    // Monster buffs itself
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
                                 }
                                 Effect::AddCardToPile { .. } => {
@@ -1904,7 +1925,7 @@ impl GameState {
                     }
 
                     // 3. Determine next move
-                    let next_idx = monster_db::next_move(info.pattern, roll, current_turn + 1);
+                    let next_idx = monster_db::next_move(monster.pattern, roll, current_turn + 1);
                     monster.move_index = next_idx;
                     update_monster_display(monster, info, next_idx);
                 }
@@ -2399,10 +2420,17 @@ fn update_monster_display(monster: &mut crate::types::Monster, info: &monster_db
 struct DamageResult {
     /// Monster lost HP (from any source).
     took_damage: bool,
-    /// Damage came from a player Attack card.
-    was_attacked: bool,
     /// Monster reached 0 HP and is now gone.
     died: bool,
+}
+
+/// Whether damage came from an Attack card or a non-attack source.
+/// Attack damage goes through the damage pipeline (Strength, Weak, Vulnerable)
+/// and triggers MonsterOnAttacked powers (e.g. Angry).
+/// Non-attack damage (from powers, status effects) only triggers MonsterOnDamaged (e.g. CurlUp).
+enum DamageKind {
+    Attack,
+    NonAttack,
 }
 
 fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> DamageResult {
@@ -2419,7 +2447,7 @@ fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> 
     if died {
         monster.is_gone = true;
     }
-    DamageResult { took_damage, was_attacked: false, died }
+    DamageResult { took_damage, died }
 }
 
 fn get_power_amount(powers: &[crate::types::Power], power_id: &str) -> i32 {

@@ -14,7 +14,7 @@ pub struct MonsterMove {
 }
 
 /// How a monster selects its next move.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MovePattern {
     /// Die roll mapping: 1-2 → indices[0], 3-4 → indices[1], 5-6 → indices[2]
     DieRoll3([u8; 3]),
@@ -22,6 +22,12 @@ pub enum MovePattern {
     FirstThenRepeat { first: u8, repeat: u8 },
     /// Always the same move.
     Fixed(u8),
+}
+
+impl Default for MovePattern {
+    fn default() -> Self {
+        MovePattern::Fixed(0)
+    }
 }
 
 /// Static definition of a monster type.
@@ -197,7 +203,7 @@ static MONSTERS: &[MonsterInfo] = &[
             },
             MonsterMove {
                 name: "Strengthen",
-                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 }],
+                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 2 }],
             },
         ],
         pattern: MovePattern::DieRoll3([0, 1, 2]),
@@ -207,25 +213,22 @@ static MONSTERS: &[MonsterInfo] = &[
         id: "BGBlueSlaver",
         moves: &[
             MonsterMove {
-                name: "Stab",
-                effects: &[
-                    Effect::Damage(2),
-                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
-                ],
-            },
-            MonsterMove {
-                name: "Stab",
-                effects: &[
-                    Effect::Damage(3),
-                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
-                ],
-            },
-            MonsterMove {
                 name: "Rake",
                 effects: &[
                     Effect::Damage(2),
                     Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id: "BGWeakened", amount: 1 },
                 ],
+            },
+            MonsterMove {
+                name: "Stab",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Stab",
+                effects: &[Effect::Damage(3)],
             },
         ],
         pattern: MovePattern::DieRoll3([0, 1, 2]),
