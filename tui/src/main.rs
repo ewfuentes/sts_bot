@@ -69,6 +69,13 @@ const PLAYABLE_ENCOUNTERS: &[(&str, &str, MapNodeKind)] = &[
     ("Blue Slaver", "BoardGame:Blue Slaver", MapNodeKind::Monster),
     ("Red Slaver", "BoardGame:Red Slaver", MapNodeKind::Monster),
     ("Jaw Worm (M)", "BoardGame:Jaw Worm (Medium)", MapNodeKind::Monster),
+    ("Sneaky Gremlin", "BoardGame:Sneaky Gremlin Team", MapNodeKind::Monster),
+    ("Angry Gremlin", "BoardGame:Angry Gremlin Team", MapNodeKind::Monster),
+    ("Looter", "BoardGame:Looter", MapNodeKind::Monster),
+    // Elites
+    ("Gremlin Nob", "BoardGame:Gremlin Nob", MapNodeKind::Elite),
+    ("Lagavulin", "BoardGame:Lagavulin", MapNodeKind::Elite),
+    ("3 Sentries", "BoardGame:3 Sentries", MapNodeKind::Elite),
     // Rest
     ("Rest", "", MapNodeKind::Rest),
 ];

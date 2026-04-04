@@ -247,9 +247,10 @@ impl GameState {
                     if monster.pattern == monster_db::MovePattern::default() {
                         monster.pattern = info.pattern;
                     }
-                    let move_idx = monster_db::next_move(monster.pattern, roll, 1);
+                    let move_idx = monster_db::next_move(monster.pattern, roll, 1, monster.move_index);
                     monster.move_index = move_idx;
-                    update_monster_display(monster, info, move_idx);
+                    let actual_move = monster_db::resolve_move_index(monster.pattern, move_idx);
+                    update_monster_display(monster, info, actual_move);
                 }
             }
 
@@ -1785,6 +1786,9 @@ impl GameState {
                     }
                 }
             }
+            Effect::MonsterEscape => {
+                // Handled inline in execute_monster_turns, not via effect queue
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
@@ -1856,7 +1860,7 @@ impl GameState {
                     effect_queue.push_back((Effect::DecayMonsterBlock, ResolvedTarget::Monster(monster_idx)));
 
                     // 2. Queue current move effects
-                    let move_idx = monster.move_index as usize;
+                    let move_idx = monster_db::resolve_move_index(info.pattern, monster.move_index) as usize;
                     if let Some(monster_move) = info.moves.get(move_idx) {
                         let is_attack = monster_move.effects.iter().any(|e| matches!(e, Effect::Damage(_)));
 
@@ -1878,6 +1882,9 @@ impl GameState {
                                 Effect::AddCardToPile { .. } => {
                                     // Adds status cards to player's piles
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
+                                }
+                                Effect::MonsterEscape => {
+                                    monster.is_gone = true;
                                 }
                                 _ => {
                                     panic!("Unexpected effect in monster move: {:?}", effect);
@@ -1903,9 +1910,10 @@ impl GameState {
                     queue_triggered(effect_queue, triggered);
 
                     // 3. Determine next move
-                    let next_idx = monster_db::next_move(monster.pattern, roll, current_turn + 1);
+                    let next_idx = monster_db::next_move(monster.pattern, roll, current_turn + 1, monster.move_index);
                     monster.move_index = next_idx;
-                    update_monster_display(monster, info, next_idx);
+                    let actual_move = monster_db::resolve_move_index(monster.pattern, next_idx);
+                    update_monster_display(monster, info, actual_move);
                 }
             }
         }

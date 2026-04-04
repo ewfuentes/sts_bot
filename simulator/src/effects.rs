@@ -119,6 +119,8 @@ pub enum Effect {
     /// After a monster attacks the player: tick down the monster's BGWeakened
     /// and the player's BGVulnerable.
     TickDownMonsterAttackPowers { monster_had_weak: bool, player_had_vuln: bool },
+    /// Monster escapes from combat (set is_gone = true).
+    MonsterEscape,
     Custom(&'static str),
 }
 
