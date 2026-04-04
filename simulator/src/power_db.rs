@@ -173,9 +173,8 @@ static POWERS: &[PowerInfo] = &[
         id: "BGCurlUp",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::MonsterOnDamaged,
-            effects: &[],
+            effects: &[Effect::MonsterBlock(0)],
             front_effects: &[
-                Effect::MonsterBlock(0),
                 Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGCurlUp", amount: i16::MIN },
             ],
         }],
@@ -185,7 +184,7 @@ static POWERS: &[PowerInfo] = &[
         id: "BGSporeCloud",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::MonsterOnDeath,
-            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::TargetEnemy, power_id: "BGVulnerable", amount: 0 }],
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::Player, power_id: "BGVulnerable", amount: 0 }],
             front_effects: &[],
         }],
         modifiers: &[],

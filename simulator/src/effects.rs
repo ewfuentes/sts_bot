@@ -157,6 +157,7 @@ pub enum EffectTarget {
     TargetEnemy,
     _Self,
     AllEnemies,
+    Player,
 }
 
 /// Resolved target for effects in the effect queue at runtime.

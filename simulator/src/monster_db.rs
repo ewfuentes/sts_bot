@@ -118,7 +118,7 @@ static MONSTERS: &[MonsterInfo] = &[
             },
             MonsterMove {
                 name: "Lick",
-                effects: &[Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id: "BGWeakened", amount: 1 }],
+                effects: &[Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGWeakened", amount: 1 }],
             },
         ],
         pattern: MovePattern::DieRoll3([0, 1, 2]),
@@ -131,7 +131,7 @@ static MONSTERS: &[MonsterInfo] = &[
                 name: "Flame Tackle",
                 effects: &[
                     Effect::Damage(1),
-                    Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id: "BGVulnerable", amount: 1 },
+                    Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGVulnerable", amount: 1 },
                 ],
             },
             MonsterMove {
@@ -177,7 +177,7 @@ static MONSTERS: &[MonsterInfo] = &[
             },
             MonsterMove {
                 name: "Spit Web",
-                effects: &[Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id: "BGWeakened", amount: 1 }],
+                effects: &[Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGWeakened", amount: 1 }],
             },
             MonsterMove {
                 name: "Chomp",
@@ -216,7 +216,7 @@ static MONSTERS: &[MonsterInfo] = &[
                 name: "Rake",
                 effects: &[
                     Effect::Damage(2),
-                    Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id: "BGWeakened", amount: 1 },
+                    Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGWeakened", amount: 1 },
                 ],
             },
             MonsterMove {
@@ -248,7 +248,7 @@ static MONSTERS: &[MonsterInfo] = &[
                 name: "Scrape",
                 effects: &[
                     Effect::Damage(2),
-                    Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id: "BGVulnerable", amount: 1 },
+                    Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGVulnerable", amount: 1 },
                 ],
             },
             MonsterMove {

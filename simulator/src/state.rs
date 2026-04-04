@@ -1401,6 +1401,9 @@ impl GameState {
                                 }
                             }
                         }
+                        EffectTarget::Player => {
+                            apply_power(player_powers, power_id, *amount as i32);
+                        }
                     }
                 }
             }
@@ -1864,18 +1867,7 @@ impl GameState {
                                         ResolvedTarget::Player,
                                     ));
                                 }
-                                Effect::MonsterBlock(_) => {
-                                    effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
-                                }
-                                Effect::ApplyPower { target: EffectTarget::TargetEnemy, power_id, amount } => {
-                                    // Monster debuffs the player — resolve to _Self + Player
-                                    effect_queue.push_back((
-                                        Effect::ApplyPower { target: EffectTarget::_Self, power_id, amount: *amount },
-                                        ResolvedTarget::Player,
-                                    ));
-                                }
-                                Effect::ApplyPower { .. } => {
-                                    // Monster buffs itself
+                                Effect::MonsterBlock(_) | Effect::ApplyPower { .. } => {
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
                                 }
                                 Effect::AddCardToPile { .. } => {

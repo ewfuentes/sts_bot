@@ -3690,13 +3690,13 @@ fn curl_up_triggers_only_once_on_multi_hit() {
     });
 
     if let Screen::Combat { monsters, .. } = state.current_screen() {
-        // CurlUp grants 2 block once, then removes itself.
-        // Twin Strike deals 1+1=2 damage. First hit: 1 dmg absorbed by 0 block → HP 9.
-        // CurlUp triggers: +2 block, CurlUp removed.
-        // Second hit: 1 dmg absorbed by 2 block → block becomes 1.
-        // So: HP=9, block=1, no CurlUp power.
-        assert_eq!(monsters[0].hp, 9, "First hit should deal 1 HP damage");
-        assert_eq!(monsters[0].block, 1, "Block should be 2 from CurlUp minus 1 from second hit");
+        // CurlUp removal goes to front (prevents double-trigger),
+        // but block goes to back (applies after all hits resolve).
+        // Twin Strike deals 1+1=2 damage, both hits land on unblocked HP.
+        // Then CurlUp grants 2 block.
+        // Final: HP=8, block=2, no CurlUp power.
+        assert_eq!(monsters[0].hp, 8, "Both hits should deal damage before CurlUp block");
+        assert_eq!(monsters[0].block, 2, "CurlUp should grant 2 block after all hits");
         assert!(!monsters[0].powers.iter().any(|p| p.id == "BGCurlUp"),
             "CurlUp should be removed after triggering");
     } else {
