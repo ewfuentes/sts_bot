@@ -1,4 +1,4 @@
-use crate::effects::{Effect, EffectTarget};
+use crate::effects::{Effect, EffectTarget, Pile};
 
 /// A single monster move (one entry in the move table).
 #[derive(Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct MonsterMove {
 }
 
 /// How a monster selects its next move.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MovePattern {
     /// Die roll mapping: 1-2 → indices[0], 3-4 → indices[1], 5-6 → indices[2]
     DieRoll3([u8; 3]),
@@ -22,6 +22,12 @@ pub enum MovePattern {
     FirstThenRepeat { first: u8, repeat: u8 },
     /// Always the same move.
     Fixed(u8),
+}
+
+impl Default for MovePattern {
+    fn default() -> Self {
+        MovePattern::Fixed(0)
+    }
 }
 
 /// Static definition of a monster type.
@@ -93,6 +99,164 @@ static MONSTERS: &[MonsterInfo] = &[
         ],
         // Behavior "sda": rolls 1-2 → Bellow(2), 3-4 → Thrash(1), 5-6 → Chomp(0)
         pattern: MovePattern::DieRoll3([2, 1, 0]),
+        starting_effects: &[],
+    },
+    // ── Phase 1: Die-controlled monsters ──
+    MonsterInfo {
+        id: "BGAcidSlime_M",
+        moves: &[
+            MonsterMove {
+                name: "Corrosive Spit",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Tackle",
+                effects: &[Effect::Damage(2)],
+            },
+            MonsterMove {
+                name: "Lick",
+                effects: &[Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGWeakened", amount: 1 }],
+            },
+        ],
+        pattern: MovePattern::DieRoll3([0, 1, 2]),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGSpikeSlime_M",
+        moves: &[
+            MonsterMove {
+                name: "Flame Tackle",
+                effects: &[
+                    Effect::Damage(1),
+                    Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGVulnerable", amount: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Lick",
+                effects: &[
+                    Effect::Damage(1),
+                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Tackle",
+                effects: &[Effect::Damage(2)],
+            },
+        ],
+        pattern: MovePattern::DieRoll3([0, 1, 2]),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGRedLouse",
+        moves: &[
+            MonsterMove {
+                name: "Bite",
+                effects: &[Effect::Damage(1)],
+            },
+            MonsterMove {
+                name: "Strengthen",
+                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 }],
+            },
+            MonsterMove {
+                name: "Chomp",
+                effects: &[Effect::Damage(2)],
+            },
+        ],
+        pattern: MovePattern::DieRoll3([0, 1, 2]),
+        starting_effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGCurlUp", amount: 2 }],
+    },
+    MonsterInfo {
+        id: "BGGreenLouse",
+        moves: &[
+            MonsterMove {
+                name: "Bite",
+                effects: &[Effect::Damage(1)],
+            },
+            MonsterMove {
+                name: "Spit Web",
+                effects: &[Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGWeakened", amount: 1 }],
+            },
+            MonsterMove {
+                name: "Chomp",
+                effects: &[Effect::Damage(2)],
+            },
+        ],
+        pattern: MovePattern::DieRoll3([0, 1, 2]),
+        starting_effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGCurlUp", amount: 2 }],
+    },
+    MonsterInfo {
+        id: "BGFungiBeast",
+        moves: &[
+            MonsterMove {
+                name: "Bite",
+                effects: &[Effect::Damage(2)],
+            },
+            MonsterMove {
+                name: "Grow",
+                effects: &[
+                    Effect::Damage(1),
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Strengthen",
+                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 2 }],
+            },
+        ],
+        pattern: MovePattern::DieRoll3([0, 1, 2]),
+        starting_effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGSporeCloud", amount: 1 }],
+    },
+    MonsterInfo {
+        id: "BGBlueSlaver",
+        moves: &[
+            MonsterMove {
+                name: "Rake",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGWeakened", amount: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Stab",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Stab",
+                effects: &[Effect::Damage(3)],
+            },
+        ],
+        pattern: MovePattern::DieRoll3([0, 1, 2]),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGRedSlaver",
+        moves: &[
+            MonsterMove {
+                name: "Stab",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Scrape",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::ApplyPower { target: EffectTarget::Player, power_id: "BGVulnerable", amount: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Stab",
+                effects: &[Effect::Damage(3)],
+            },
+        ],
+        pattern: MovePattern::DieRoll3([0, 1, 2]),
         starting_effects: &[],
     },
 ];

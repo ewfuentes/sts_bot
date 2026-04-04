@@ -58,4 +58,8 @@ pub struct Monster {
     /// Current move index into the monster_db move table.
     #[serde(default)]
     pub move_index: u8,
+    /// Per-instance move pattern, copied from monster_db at spawn time.
+    /// DieRoll3 indices are shuffled per instance for encounter variety.
+    #[serde(skip)]
+    pub pattern: crate::monster_db::MovePattern,
 }

@@ -9,14 +9,22 @@ pub enum PowerTrigger {
     PlayerStartOfTurn,
     MonsterEndOfTurn,
     OnGainBlock,
+    /// Monster took HP damage from any source (CurlUp).
+    MonsterOnDamaged,
+    /// Monster was hit by a player Attack card (Angry).
+    MonsterOnAttacked,
+    MonsterOnDeath,
 }
 
 #[derive(Debug, Clone)]
 pub struct TriggeredEffect {
     pub trigger: PowerTrigger,
-    /// Effects to queue. The power's `amount` is substituted for any
+    /// Effects queued to the back. The power's `amount` is substituted for any
     /// effect that uses it (e.g. Block(0) becomes Block(amount)).
     pub effects: &'static [Effect],
+    /// Effects pushed to the front of the queue (execute before next trigger collection).
+    /// Used for self-removal so multi-hit attacks don't double-trigger.
+    pub front_effects: &'static [Effect],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +48,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::Block(0)],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -48,6 +57,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::Draw(0)],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -56,6 +66,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
             effects: &[Effect::Draw(0)],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -65,10 +76,12 @@ static POWERS: &[PowerInfo] = &[
             TriggeredEffect {
                 trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
                 effects: &[Effect::DamageFixedAll(0)],
+                front_effects: &[],
             },
             TriggeredEffect {
                 trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Curse },
                 effects: &[Effect::DamageFixedAll(0)],
+                front_effects: &[],
             },
         ],
         modifiers: &[],
@@ -78,6 +91,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::Block(0)],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -86,6 +100,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::DamageFixedAll(0)],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -94,6 +109,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::DamageFixedAll(0)],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -102,6 +118,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerStartOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -115,6 +132,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnGainBlock,
             effects: &[Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending }],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -123,6 +141,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGDoubleAttack", amount: i16::MIN }],
+            front_effects: &[],
         }],
         modifiers: &[PowerModifier::RepeatAttack],
     },
@@ -136,6 +155,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::MonsterEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            front_effects: &[],
         }],
         modifiers: &[],
     },
@@ -144,8 +164,39 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "NoDrawPower", amount: -1 }],
+            front_effects: &[],
         }],
         modifiers: &[PowerModifier::PreventDraw],
+    },
+    // Monster reactive powers
+    PowerInfo {
+        id: "BGCurlUp",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnDamaged,
+            effects: &[Effect::MonsterBlock(0)],
+            front_effects: &[
+                Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGCurlUp", amount: i16::MIN },
+            ],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "BGSporeCloud",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnDeath,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::Player, power_id: "BGVulnerable", amount: 0 }],
+            front_effects: &[],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "Angry",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnAttacked,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            front_effects: &[],
+        }],
+        modifiers: &[],
     },
 ];
 
@@ -207,31 +258,44 @@ pub fn apply_cost_modification(
     cost
 }
 
+pub struct TriggeredEffects {
+    /// Effects to push to the back of the queue (normal ordering).
+    pub back: Vec<Effect>,
+    /// Effects to push to the front of the queue (execute before next trigger collection).
+    pub front: Vec<Effect>,
+}
+
 /// Collect all effects that should fire for the given trigger,
 /// substituting the power's amount into the effect templates.
 pub fn collect_triggered_effects(
     trigger: PowerTrigger,
     powers: &[crate::types::Power],
-) -> Vec<Effect> {
-    let mut results = Vec::new();
+) -> TriggeredEffects {
+    let mut back = Vec::new();
+    let mut front = Vec::new();
     for power in powers {
         if let Some(info) = lookup(&power.id) {
             for te in info.triggers {
                 if te.trigger == trigger {
                     for effect in te.effects {
-                        results.push(substitute_amount(effect, power));
+                        back.push(substitute_amount(effect, power));
+                    }
+                    for effect in te.front_effects {
+                        front.push(substitute_amount(effect, power));
                     }
                 }
             }
         }
     }
-    results
+    TriggeredEffects { back, front }
 }
+
 
 fn substitute_amount(effect: &Effect, power: &crate::types::Power) -> Effect {
     let amt = power.amount;
     match effect {
         Effect::Block(0) => Effect::Block(amt as i16),
+        Effect::MonsterBlock(0) => Effect::MonsterBlock(amt as u16),
         Effect::Draw(0) => Effect::Draw(amt as u8),
         Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amt as i16),
         Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending } => {
