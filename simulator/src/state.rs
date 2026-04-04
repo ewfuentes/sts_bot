@@ -1366,18 +1366,12 @@ impl GameState {
                 if let Some(Screen::Combat { player_powers, monsters, .. }) = self.find_combat_mut() {
                     match effect_target {
                         EffectTarget::TargetEnemy => {
-                            // From player: target enemy monster. From monster: target player.
-                            match target {
-                                ResolvedTarget::Monster(idx) => {
-                                    let idx = idx as usize;
-                                    if idx < monsters.len() && !monsters[idx].is_gone {
-                                        apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
-                                    }
+                            // Player card targeting an enemy monster
+                            if let ResolvedTarget::Monster(idx) = target {
+                                let idx = idx as usize;
+                                if idx < monsters.len() && !monsters[idx].is_gone {
+                                    apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
                                 }
-                                ResolvedTarget::Player => {
-                                    apply_power(player_powers, power_id, *amount as i32);
-                                }
-                                _ => {}
                             }
                         }
                         EffectTarget::_Self => {
