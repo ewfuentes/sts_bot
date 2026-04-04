@@ -9,6 +9,8 @@ pub enum PowerTrigger {
     PlayerStartOfTurn,
     MonsterEndOfTurn,
     OnGainBlock,
+    MonsterOnAttacked,
+    MonsterOnDeath,
 }
 
 #[derive(Debug, Clone)]
@@ -17,6 +19,8 @@ pub struct TriggeredEffect {
     /// Effects to queue. The power's `amount` is substituted for any
     /// effect that uses it (e.g. Block(0) becomes Block(amount)).
     pub effects: &'static [Effect],
+    /// If true, remove this power from the monster after triggering.
+    pub remove_after_trigger: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +44,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::Block(0)],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -48,6 +53,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::Draw(0)],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -56,6 +62,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
             effects: &[Effect::Draw(0)],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -65,10 +72,12 @@ static POWERS: &[PowerInfo] = &[
             TriggeredEffect {
                 trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
                 effects: &[Effect::DamageFixedAll(0)],
+                remove_after_trigger: false,
             },
             TriggeredEffect {
                 trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Curse },
                 effects: &[Effect::DamageFixedAll(0)],
+                remove_after_trigger: false,
             },
         ],
         modifiers: &[],
@@ -78,6 +87,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::Block(0)],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -86,6 +96,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::DamageFixedAll(0)],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -94,6 +105,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnExhaust,
             effects: &[Effect::DamageFixedAll(0)],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -102,6 +114,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerStartOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -115,6 +128,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::OnGainBlock,
             effects: &[Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending }],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -123,6 +137,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGDoubleAttack", amount: i16::MIN }],
+            remove_after_trigger: false,
         }],
         modifiers: &[PowerModifier::RepeatAttack],
     },
@@ -136,6 +151,7 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::MonsterEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            remove_after_trigger: false,
         }],
         modifiers: &[],
     },
@@ -144,8 +160,37 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "NoDrawPower", amount: -1 }],
+            remove_after_trigger: false,
         }],
         modifiers: &[PowerModifier::PreventDraw],
+    },
+    // Monster reactive powers
+    PowerInfo {
+        id: "BGCurlUp",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnAttacked,
+            effects: &[Effect::MonsterBlock(0)],
+            remove_after_trigger: true,
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "BGSporeCloud",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnDeath,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::TargetEnemy, power_id: "BGVulnerable", amount: 0 }],
+            remove_after_trigger: false,
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "Angry",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnAttacked,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            remove_after_trigger: false,
+        }],
+        modifiers: &[],
     },
 ];
 
@@ -228,10 +273,35 @@ pub fn collect_triggered_effects(
     results
 }
 
+/// Collect triggered effects and also return power IDs that should be removed after triggering.
+pub fn collect_triggered_effects_with_removal(
+    trigger: PowerTrigger,
+    powers: &[crate::types::Power],
+) -> (Vec<Effect>, Vec<String>) {
+    let mut effects = Vec::new();
+    let mut to_remove = Vec::new();
+    for power in powers {
+        if let Some(info) = lookup(&power.id) {
+            for te in info.triggers {
+                if te.trigger == trigger {
+                    for effect in te.effects {
+                        effects.push(substitute_amount(effect, power));
+                    }
+                    if te.remove_after_trigger {
+                        to_remove.push(power.id.clone());
+                    }
+                }
+            }
+        }
+    }
+    (effects, to_remove)
+}
+
 fn substitute_amount(effect: &Effect, power: &crate::types::Power) -> Effect {
     let amt = power.amount;
     match effect {
         Effect::Block(0) => Effect::Block(amt as i16),
+        Effect::MonsterBlock(0) => Effect::MonsterBlock(amt as u16),
         Effect::Draw(0) => Effect::Draw(amt as u8),
         Effect::DamageFixedAll(0) => Effect::DamageFixedAll(amt as i16),
         Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending } => {
