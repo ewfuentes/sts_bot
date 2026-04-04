@@ -260,34 +260,68 @@ pub fn apply_cost_modification(
 
 pub struct TriggeredEffects {
     /// Effects to push to the back of the queue (normal ordering).
-    pub back: Vec<Effect>,
+    pub back: Vec<(Effect, crate::effects::ResolvedTarget)>,
     /// Effects to push to the front of the queue (execute before next trigger collection).
-    pub front: Vec<Effect>,
+    pub front: Vec<(Effect, crate::effects::ResolvedTarget)>,
 }
 
 /// Collect all effects that should fire for the given trigger,
-/// substituting the power's amount into the effect templates.
+/// scanning both player powers and all living monsters' powers.
+pub fn collect_all_triggered_effects(
+    trigger: PowerTrigger,
+    player_powers: &[crate::types::Power],
+    monsters: &[crate::types::Monster],
+) -> TriggeredEffects {
+    use crate::effects::ResolvedTarget;
+    let mut result = TriggeredEffects { back: Vec::new(), front: Vec::new() };
+
+    // Player powers
+    collect_from_powers(trigger, player_powers, ResolvedTarget::Player, &mut result);
+
+    // Monster powers
+    for (i, monster) in monsters.iter().enumerate() {
+        if !monster.is_gone {
+            collect_from_powers(trigger, &monster.powers, ResolvedTarget::Monster(i as u8), &mut result);
+        }
+    }
+
+    result
+}
+
+/// Collect triggered effects from a single power source.
+/// `owner` identifies who holds these powers — used to resolve `_Self` effects
+/// (e.g. `ResolvedTarget::Monster(idx)` for a monster's Ritual power,
+/// `ResolvedTarget::Player` for a player's DemonForm power).
 pub fn collect_triggered_effects(
     trigger: PowerTrigger,
     powers: &[crate::types::Power],
+    owner: crate::effects::ResolvedTarget,
 ) -> TriggeredEffects {
-    let mut back = Vec::new();
-    let mut front = Vec::new();
+    let mut result = TriggeredEffects { back: Vec::new(), front: Vec::new() };
+    collect_from_powers(trigger, powers, owner, &mut result);
+    result
+}
+
+fn collect_from_powers(
+    trigger: PowerTrigger,
+    powers: &[crate::types::Power],
+    owner: crate::effects::ResolvedTarget,
+    result: &mut TriggeredEffects,
+) {
     for power in powers {
         if let Some(info) = lookup(&power.id) {
             for te in info.triggers {
                 if te.trigger == trigger {
                     for effect in te.effects {
-                        back.push(substitute_amount(effect, power));
+                        result.back.push((substitute_amount(effect, power), owner));
                     }
                     for effect in te.front_effects {
-                        front.push(substitute_amount(effect, power));
+                        result.front.push((substitute_amount(effect, power), owner));
                     }
                 }
             }
         }
     }
-    TriggeredEffects { back, front }
 }
 
 
