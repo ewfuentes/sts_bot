@@ -1271,7 +1271,7 @@ impl GameState {
                         }
                         self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::NonAttack);
                     }
-                    _ => {
+                    ResolvedTarget::Player | ResolvedTarget::NoTarget => {
                         // Blockable damage to the player (e.g. BGAngerPower thorns)
                         let dmg = *amount as u16;
                         if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
