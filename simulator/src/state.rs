@@ -277,17 +277,10 @@ impl GameState {
     /// Determinize all unordered pools by shuffling with the given seed.
     /// After this call, all pools are Ordered and can be drawn from.
     pub fn determinize(&mut self, seed: u64) {
+        let mut rng = crate::rng::Rng::from_seed(seed);
         if let Some(pools) = &mut self.reward_pools {
-            let mut rng = seed;
             pools.determinize(&mut |items| {
-                // Fisher-Yates shuffle with LCG
-                for i in (1..items.len()).rev() {
-                    rng = rng
-                        .wrapping_mul(6364136223846793005)
-                        .wrapping_add(1442695040888963407);
-                    let j = (rng >> 33) as usize % (i + 1);
-                    items.swap(i, j);
-                }
+                rng.shuffle(items);
             });
         }
     }
@@ -748,18 +741,20 @@ impl GameState {
                 let kind = *kind;
                 let choice_idx = *choice_index as usize;
 
-                // Look up the encounter ID from the map node if available
-                let encounter_id = if let Screen::Map { available_nodes, .. } = self.current_screen() {
+                // Look up the encounter ID and node seed from the map
+                let (encounter_id, node_seed) = if let Screen::Map { available_nodes, .. } = self.current_screen() {
                     if choice_idx < available_nodes.len() {
                         let node_idx = available_nodes[choice_idx].node_index;
-                        self.map.as_ref()
-                            .and_then(|m| m.nodes.get(node_idx))
-                            .and_then(|n| n.encounter.clone())
+                        if let Some(node) = self.map.as_ref().and_then(|m| m.nodes.get(node_idx)) {
+                            (node.encounter.clone(), node.seed)
+                        } else {
+                            (None, 0)
+                        }
                     } else {
-                        None
+                        (None, 0)
                     }
                 } else {
-                    None
+                    (None, 0)
                 };
 
                 let screen = match kind {
@@ -770,7 +765,7 @@ impl GameState {
                             MapNodeKind::Boss => "UNKNOWN_BOSS",
                             _ => unreachable!(),
                         });
-                        let mut combat = Screen::new_combat(enc_id);
+                        let mut combat = Screen::new_combat(enc_id, node_seed);
                         // Populate monsters from encounter_db
                         if let Some(enc) = encounter_db::lookup(enc_id) {
                             if let Screen::Combat { monsters, .. } = &mut combat {

@@ -58,6 +58,9 @@ pub enum Screen {
         /// Queue of effects waiting to execute.
         #[serde(skip)]
         effect_queue: VecDeque<(Effect, ResolvedTarget)>,
+        /// Per-combat RNG, seeded from the map node's seed.
+        #[serde(skip)]
+        rng: crate::rng::Rng,
     },
     CardReward {
         cards: Vec<Card>,
@@ -144,7 +147,7 @@ pub enum Screen {
 }
 
 impl Screen {
-    pub fn new_combat(encounter: impl Into<String>) -> Self {
+    pub fn new_combat(encounter: impl Into<String>, seed: u64) -> Self {
         Screen::Combat {
             encounter: encounter.into(),
             monsters: vec![],
@@ -158,6 +161,7 @@ impl Screen {
             turn: 0,
             die_roll: None,
             effect_queue: VecDeque::new(),
+            rng: crate::rng::Rng::from_seed(seed),
         }
     }
 }
