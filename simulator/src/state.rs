@@ -1384,7 +1384,7 @@ impl GameState {
                             }
                         }
                         EffectTarget::_Self => {
-                            // "Self" depends on who queued the effect
+                            // "Self" resolves based on the owner (who queued the effect)
                             match target {
                                 ResolvedTarget::Monster(idx) => {
                                     let idx = idx as usize;
@@ -1392,7 +1392,7 @@ impl GameState {
                                         apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
                                     }
                                 }
-                                _ => {
+                                ResolvedTarget::Player | ResolvedTarget::NoTarget => {
                                     apply_power(player_powers, power_id, *amount as i32);
                                 }
                             }
