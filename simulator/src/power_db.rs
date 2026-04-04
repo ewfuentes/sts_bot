@@ -289,20 +289,23 @@ pub fn collect_all_triggered_effects(
 }
 
 /// Collect triggered effects from a single power source.
+/// `owner` identifies who holds these powers — used to resolve `_Self` effects
+/// (e.g. `ResolvedTarget::Monster(idx)` for a monster's Ritual power,
+/// `ResolvedTarget::Player` for a player's DemonForm power).
 pub fn collect_triggered_effects(
     trigger: PowerTrigger,
     powers: &[crate::types::Power],
-    target: crate::effects::ResolvedTarget,
+    owner: crate::effects::ResolvedTarget,
 ) -> TriggeredEffects {
     let mut result = TriggeredEffects { back: Vec::new(), front: Vec::new() };
-    collect_from_powers(trigger, powers, target, &mut result);
+    collect_from_powers(trigger, powers, owner, &mut result);
     result
 }
 
 fn collect_from_powers(
     trigger: PowerTrigger,
     powers: &[crate::types::Power],
-    target: crate::effects::ResolvedTarget,
+    owner: crate::effects::ResolvedTarget,
     result: &mut TriggeredEffects,
 ) {
     for power in powers {
@@ -310,10 +313,10 @@ fn collect_from_powers(
             for te in info.triggers {
                 if te.trigger == trigger {
                     for effect in te.effects {
-                        result.back.push((substitute_amount(effect, power), target));
+                        result.back.push((substitute_amount(effect, power), owner));
                     }
                     for effect in te.front_effects {
-                        result.front.push((substitute_amount(effect, power), target));
+                        result.front.push((substitute_amount(effect, power), owner));
                     }
                 }
             }
