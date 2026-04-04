@@ -290,28 +290,33 @@ impl GameState {
                 return;
             }
 
+            let target = ResolvedTarget::Monster(monster_idx);
+
             if result.took_damage {
                 let triggered = power_db::collect_triggered_effects(
                     power_db::PowerTrigger::MonsterOnDamaged,
                     &monsters[idx].powers,
+                    target,
                 );
-                queue_triggered(effect_queue, triggered, ResolvedTarget::Monster(monster_idx));
+                queue_triggered(effect_queue, triggered);
             }
 
             if matches!(kind, DamageKind::Attack) && result.took_damage {
                 let triggered = power_db::collect_triggered_effects(
                     power_db::PowerTrigger::MonsterOnAttacked,
                     &monsters[idx].powers,
+                    target,
                 );
-                queue_triggered(effect_queue, triggered, ResolvedTarget::Monster(monster_idx));
+                queue_triggered(effect_queue, triggered);
             }
 
             if result.died {
                 let triggered = power_db::collect_triggered_effects(
                     power_db::PowerTrigger::MonsterOnDeath,
                     &monsters[idx].powers,
+                    target,
                 );
-                queue_triggered(effect_queue, triggered, ResolvedTarget::Monster(monster_idx));
+                queue_triggered(effect_queue, triggered);
             }
         }
     }
@@ -947,12 +952,13 @@ impl GameState {
             }
             Action::EndTurn => {
                 // 1. End-of-turn power triggers (Metallicize, BGCombust, etc.)
-                if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
-                    let triggered = power_db::collect_triggered_effects(
+                if let Screen::Combat { player_powers, monsters, effect_queue, .. } = self.current_screen_mut() {
+                    let triggered = power_db::collect_all_triggered_effects(
                         power_db::PowerTrigger::PlayerEndOfTurn,
                         player_powers,
+                        monsters,
                     );
-                    queue_triggered(effect_queue, triggered, ResolvedTarget::NoTarget);
+                    queue_triggered(effect_queue, triggered);
                 }
 
                 // 2. Discard hand (ethereal → exhaust)
@@ -1008,12 +1014,13 @@ impl GameState {
                 self.drain_effect_queue();
 
                 // 4. Start-of-turn power triggers (DemonForm, etc.)
-                if let Screen::Combat { player_powers, effect_queue, .. } = self.current_screen_mut() {
-                    let triggered = power_db::collect_triggered_effects(
+                if let Screen::Combat { player_powers, monsters, effect_queue, .. } = self.current_screen_mut() {
+                    let triggered = power_db::collect_all_triggered_effects(
                         power_db::PowerTrigger::PlayerStartOfTurn,
                         player_powers,
+                        monsters,
                     );
-                    queue_triggered(effect_queue, triggered, ResolvedTarget::NoTarget);
+                    queue_triggered(effect_queue, triggered);
                 }
                 self.drain_effect_queue();
             }
@@ -1311,8 +1318,9 @@ impl GameState {
                         let triggered = power_db::collect_triggered_effects(
                             power_db::PowerTrigger::OnGainBlock,
                             player_powers,
+                            ResolvedTarget::Player,
                         );
-                        queue_triggered(effect_queue, triggered, ResolvedTarget::NoTarget);
+                        queue_triggered(effect_queue, triggered);
                     }
                 }
             }
@@ -1335,8 +1343,9 @@ impl GameState {
                         let triggered = power_db::collect_triggered_effects(
                             power_db::PowerTrigger::OnGainBlock,
                             player_powers,
+                            ResolvedTarget::Player,
                         );
-                        queue_triggered(effect_queue, triggered, ResolvedTarget::NoTarget);
+                        queue_triggered(effect_queue, triggered);
                     }
                 }
             }
@@ -1666,8 +1675,9 @@ impl GameState {
                             let triggered = power_db::collect_triggered_effects(
                                 power_db::PowerTrigger::OnDraw { card_type: ct },
                                 player_powers,
+                                ResolvedTarget::Player,
                             );
-                            queue_triggered(effect_queue, triggered, ResolvedTarget::NoTarget);
+                            queue_triggered(effect_queue, triggered);
                         }
                     }
                 }
@@ -1680,8 +1690,9 @@ impl GameState {
                     let triggered = power_db::collect_triggered_effects(
                         power_db::PowerTrigger::OnShuffle,
                         player_powers,
+                        ResolvedTarget::Player,
                     );
-                    queue_triggered(effect_queue, triggered, ResolvedTarget::NoTarget);
+                    queue_triggered(effect_queue, triggered);
                 }
             }
             Effect::DamageFixedAll(amount) => {
@@ -1887,8 +1898,9 @@ impl GameState {
                     let triggered = power_db::collect_triggered_effects(
                         power_db::PowerTrigger::MonsterEndOfTurn,
                         &monster.powers,
+                        ResolvedTarget::Monster(monster_idx),
                     );
-                    queue_triggered(effect_queue, triggered, ResolvedTarget::Monster(monster_idx));
+                    queue_triggered(effect_queue, triggered);
 
                     // 3. Determine next move
                     let next_idx = monster_db::next_move(monster.pattern, roll, current_turn + 1);
@@ -2370,13 +2382,12 @@ enum EffectResult {
 fn queue_triggered(
     effect_queue: &mut std::collections::VecDeque<(Effect, ResolvedTarget)>,
     triggered: power_db::TriggeredEffects,
-    target: ResolvedTarget,
 ) {
-    for effect in triggered.back {
-        effect_queue.push_back((effect, target));
+    for entry in triggered.back {
+        effect_queue.push_back(entry);
     }
-    for effect in triggered.front.into_iter().rev() {
-        effect_queue.push_front((effect, target));
+    for entry in triggered.front.into_iter().rev() {
+        effect_queue.push_front(entry);
     }
 }
 
@@ -2599,7 +2610,8 @@ fn exhaust_card(
     let triggered = power_db::collect_triggered_effects(
         power_db::PowerTrigger::OnExhaust,
         player_powers,
+        ResolvedTarget::Player,
     );
-    queue_triggered(effect_queue, triggered, ResolvedTarget::NoTarget);
+    queue_triggered(effect_queue, triggered);
 }
 
