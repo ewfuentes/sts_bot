@@ -4,6 +4,7 @@ pub mod effects;
 pub mod encounter_db;
 pub mod monster_db;
 pub mod power_db;
+pub mod rng;
 mod action;
 mod map;
 pub mod pool;
@@ -17,6 +18,7 @@ mod types;
 
 pub use action::Action;
 pub use map::{ActMap, MapNode, MapNodeKind};
+pub use rng::Rng;
 pub use screen::{HandCard, MapChoice, Screen, TargetReason};
 pub use state::{GameState, RewardPools};
 pub use types::{Card, Monster, Power, Potion, Relic};

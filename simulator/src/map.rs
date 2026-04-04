@@ -21,6 +21,9 @@ pub struct MapNode {
     /// so the model can't see which enemies it will face.
     #[serde(skip)]
     pub encounter: Option<String>,
+    /// Pre-computed seed for this node's RNG (fights, events, etc.).
+    #[serde(skip)]
+    pub seed: u64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
