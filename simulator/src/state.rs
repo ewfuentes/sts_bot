@@ -222,45 +222,22 @@ impl GameState {
 
     /// Apply pre-battle starting effects for all monsters in combat.
     /// Call this after monsters are populated and before the player's first action.
-    /// Roll a deterministic die (1-6) based on floor and turn.
-    fn roll_die(floor: u8, turn: u16) -> u8 {
-        let mut rng: u64 = (floor as u64)
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(turn as u64);
-        rng = rng
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        ((rng >> 33) % 6 + 1) as u8
-    }
-
     /// Initialize combat: copy deck into draw pile, shuffle, set energy, draw opening hand.
     pub fn start_combat(&mut self) {
         let mut shuffled_deck = self.deck.clone();
-        let len = shuffled_deck.len();
-        // Fisher-Yates using a simple LCG seeded from floor
-        let mut rng: u64 = (self.floor as u64)
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(len as u64);
-        for i in (1..len).rev() {
-            rng = rng
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            let j = (rng >> 33) as usize % (i + 1);
-            shuffled_deck.swap(i, j);
-        }
-
-        let floor = self.floor;
 
         if let Some(Screen::Combat {
-            draw_pile, player_energy, turn, effect_queue, monsters, die_roll, ..
+            draw_pile, player_energy, turn, effect_queue, monsters, die_roll, rng, ..
         }) = self.find_combat_mut()
         {
+            // Shuffle the deck using the combat RNG
+            rng.shuffle(&mut shuffled_deck);
             *draw_pile = shuffled_deck;
             *player_energy = 3;
             *turn = 1;
 
             // Roll the die for turn 1
-            let roll = Self::roll_die(floor, 1);
+            let roll = rng.roll_die(6);
             *die_roll = Some(roll);
 
             // Resolve initial monster intents using the die roll
@@ -293,8 +270,10 @@ impl GameState {
     }
 
     /// Queue reactive power triggers after a monster takes damage or dies.
-    fn queue_monster_reactive_triggers(&mut self, monster_idx: u8, took_damage: bool, died: bool) {
-        if !took_damage && !died {
+    /// `was_attacked` means damage came from a player Attack card (triggers Angry).
+    /// `took_damage` means HP was reduced from any source (triggers CurlUp).
+    fn queue_monster_reactive_triggers(&mut self, monster_idx: u8, result: &DamageResult) {
+        if !result.took_damage && !result.died {
             return;
         }
         if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
@@ -303,20 +282,27 @@ impl GameState {
                 return;
             }
 
-            if took_damage {
-                let (effects, to_remove) = power_db::collect_triggered_effects_with_removal(
+            if result.took_damage {
+                let effects = power_db::collect_triggered_effects(
+                    power_db::PowerTrigger::MonsterOnDamaged,
+                    &monsters[idx].powers,
+                );
+                for effect in effects {
+                    effect_queue.push_back((effect, ResolvedTarget::Monster(monster_idx)));
+                }
+            }
+
+            if result.was_attacked {
+                let effects = power_db::collect_triggered_effects(
                     power_db::PowerTrigger::MonsterOnAttacked,
                     &monsters[idx].powers,
                 );
                 for effect in effects {
                     effect_queue.push_back((effect, ResolvedTarget::Monster(monster_idx)));
                 }
-                for power_id in to_remove {
-                    monsters[idx].powers.retain(|p| p.id != power_id);
-                }
             }
 
-            if died {
+            if result.died {
                 let effects = power_db::collect_triggered_effects(
                     power_db::PowerTrigger::MonsterOnDeath,
                     &monsters[idx].powers,
@@ -983,10 +969,8 @@ impl GameState {
                     return;
                 }
 
-                let floor = self.floor;
-
                 if let Screen::Combat {
-                    player_block, player_energy, player_powers, turn, effect_queue, die_roll, ..
+                    player_block, player_energy, player_powers, turn, effect_queue, die_roll, rng, ..
                 } = self.current_screen_mut()
                 {
                     // Start of next turn:
@@ -1000,7 +984,7 @@ impl GameState {
                     *turn += 1;
 
                     // 3. Roll the die for this turn
-                    *die_roll = Some(Self::roll_die(floor, *turn));
+                    *die_roll = Some(rng.roll_die(6));
 
                     // 4. Draw 5 cards (reshuffle if needed)
                     effect_queue.push_back((Effect::Draw(5), ResolvedTarget::NoTarget));
@@ -1229,47 +1213,50 @@ impl GameState {
             Effect::Damage(amount) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = (false, false);
+                    let mut result = DamageResult { took_damage: false, was_attacked: true, died: false };
                     if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             let dmg = calculate_damage(*amount, player_powers, &monsters[idx].powers);
                             result = apply_damage_to_monster(&mut monsters[idx], dmg);
+                            result.was_attacked = true;
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, result.0, result.1);
+                    self.queue_monster_reactive_triggers(idx as u8, &result);
                 }
             }
             Effect::DamageFixed(amount) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = (false, false);
+                    let mut result = DamageResult { took_damage: false, was_attacked: true, died: false };
                     if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                            result.was_attacked = true;
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, result.0, result.1);
+                    self.queue_monster_reactive_triggers(idx as u8, &result);
                 }
             }
             Effect::DamageAll(amount) => {
-                let mut triggers: Vec<(u8, bool, bool)> = Vec::new();
+                let mut triggers: Vec<(u8, DamageResult)> = Vec::new();
                 if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                     for (i, monster) in monsters.iter_mut().enumerate() {
                         if !monster.is_gone {
                             let dmg = calculate_damage(*amount, player_powers, &monster.powers);
-                            let result = apply_damage_to_monster(monster, dmg);
-                            triggers.push((i as u8, result.0, result.1));
+                            let mut result = apply_damage_to_monster(monster, dmg);
+                            result.was_attacked = true;
+                            triggers.push((i as u8, result));
                         }
                     }
                 }
-                for (idx, took_damage, died) in triggers {
-                    self.queue_monster_reactive_triggers(idx, took_damage, died);
+                for (idx, result) in &triggers {
+                    self.queue_monster_reactive_triggers(*idx, result);
                 }
             }
             Effect::DamageBasedOn(source) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = (false, false);
+                    let mut result = DamageResult { took_damage: false, was_attacked: true, died: false };
                     if let Some(Screen::Combat { monsters, player_block, exhaust_pile, hand, player_powers, .. }) = self.find_combat_mut() {
                         let base_amount = match source {
                             DamageSource::ExhaustPileSize => exhaust_pile.len() as i16,
@@ -1291,9 +1278,10 @@ impl GameState {
                         if idx < monsters.len() && !monsters[idx].is_gone {
                             let dmg = calculate_damage(base_amount, player_powers, &monsters[idx].powers);
                             result = apply_damage_to_monster(&mut monsters[idx], dmg);
+                            result.was_attacked = true;
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, result.0, result.1);
+                    self.queue_monster_reactive_triggers(idx as u8, &result);
                 }
             }
             Effect::StrengthIfTargetDead(amount) => {
@@ -1700,17 +1688,18 @@ impl GameState {
                 }
             }
             Effect::DamageFixedAll(amount) => {
-                let mut triggers: Vec<(u8, bool, bool)> = Vec::new();
+                let mut triggers: Vec<(u8, DamageResult)> = Vec::new();
                 if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                     for (i, monster) in monsters.iter_mut().enumerate() {
                         if !monster.is_gone {
                             let result = apply_damage_to_monster(monster, *amount as u16);
-                            triggers.push((i as u8, result.0, result.1));
+                            // Not from an Attack card, so was_attacked stays false
+                            triggers.push((i as u8, result));
                         }
                     }
                 }
-                for (idx, took_damage, died) in triggers {
-                    self.queue_monster_reactive_triggers(idx, took_damage, died);
+                for (idx, result) in &triggers {
+                    self.queue_monster_reactive_triggers(*idx, result);
                 }
             }
             Effect::PlayLastDrawnFromHand => {
@@ -2407,8 +2396,16 @@ fn update_monster_display(monster: &mut crate::types::Monster, info: &monster_db
     }
 }
 
-/// Returns (took_hp_damage, died)
-fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> (bool, bool) {
+struct DamageResult {
+    /// Monster lost HP (from any source).
+    took_damage: bool,
+    /// Damage came from a player Attack card.
+    was_attacked: bool,
+    /// Monster reached 0 HP and is now gone.
+    died: bool,
+}
+
+fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> DamageResult {
     let hp_before = monster.hp;
     if damage <= monster.block {
         monster.block -= damage;
@@ -2417,12 +2414,12 @@ fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> 
         monster.block = 0;
         monster.hp = monster.hp.saturating_sub(remaining);
     }
-    let took_hp_damage = monster.hp < hp_before;
+    let took_damage = monster.hp < hp_before;
     let died = monster.hp == 0 && !monster.is_gone;
     if died {
         monster.is_gone = true;
     }
-    (took_hp_damage, died)
+    DamageResult { took_damage, was_attacked: false, died }
 }
 
 fn get_power_amount(powers: &[crate::types::Power], power_id: &str) -> i32 {

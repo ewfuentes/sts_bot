@@ -74,19 +74,24 @@ const PLAYABLE_ENCOUNTERS: &[(&str, &str, MapNodeKind)] = &[
 ];
 
 fn make_map() -> (ActMap, Vec<MapChoice>) {
+    let mut rng = sts_simulator::Rng::from_seed(42);
     let nodes: Vec<MapNode> = PLAYABLE_ENCOUNTERS
         .iter()
         .enumerate()
-        .map(|(i, (_, encounter_id, kind))| MapNode {
-            x: i as u8,
-            y: 0,
-            kind: *kind,
-            edges: vec![],
-            encounter: if encounter_id.is_empty() {
-                None
-            } else {
-                Some(encounter_id.to_string())
-            },
+        .map(|(i, (_, encounter_id, kind))| {
+            let seed = rng.derive_seed();
+            MapNode {
+                x: i as u8,
+                y: 0,
+                kind: *kind,
+                edges: vec![],
+                encounter: if encounter_id.is_empty() {
+                    None
+                } else {
+                    Some(encounter_id.to_string())
+                },
+                seed,
+            }
         })
         .collect();
 
