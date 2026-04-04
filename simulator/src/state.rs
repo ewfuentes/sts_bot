@@ -1260,15 +1260,30 @@ impl GameState {
                 }
             }
             Effect::DamageFixed(amount) => {
-                if let ResolvedTarget::Monster(idx) = target {
-                    let idx = idx as usize;
-                    let mut result = DamageResult { took_damage: false, died: false };
-                    if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
-                        if idx < monsters.len() && !monsters[idx].is_gone {
-                            result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                match target {
+                    ResolvedTarget::Monster(idx) => {
+                        let idx = idx as usize;
+                        let mut result = DamageResult { took_damage: false, died: false };
+                        if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+                            if idx < monsters.len() && !monsters[idx].is_gone {
+                                result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
+                            }
+                        }
+                        self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::NonAttack);
+                    }
+                    _ => {
+                        // Blockable damage to the player (e.g. BGAngerPower thorns)
+                        let dmg = *amount as u16;
+                        if let Some(Screen::Combat { player_block, .. }) = self.find_combat_mut() {
+                            if dmg <= *player_block {
+                                *player_block -= dmg;
+                            } else {
+                                let remaining = dmg - *player_block;
+                                *player_block = 0;
+                                self.hp = self.hp.saturating_sub(remaining);
+                            }
                         }
                     }
-                    self.queue_monster_reactive_triggers(idx as u8, &result, DamageKind::NonAttack);
                 }
             }
             Effect::DamageAll(amount) => {
@@ -1909,8 +1924,11 @@ impl GameState {
                                     // Adds status cards to player's piles
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
                                 }
-                                Effect::MonsterEscape | Effect::StealGold(_) => {
+                                Effect::MonsterEscape => {
                                     effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(monster_idx)));
+                                }
+                                Effect::StealGold(_) => {
+                                    effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
                                 }
                                 _ => {
                                     panic!("Unexpected effect in monster move: {:?}", effect);

@@ -204,7 +204,7 @@ static POWERS: &[PowerInfo] = &[
         id: "BGAnger",
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::PlayerOnPlaySkill,
-            effects: &[Effect::LoseHP(0)],
+            effects: &[Effect::DamageFixed(0)],
             front_effects: &[],
         }],
         modifiers: &[],
