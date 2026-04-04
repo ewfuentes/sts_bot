@@ -3670,3 +3670,36 @@ fn monster_attack_ticks_down_monster_weakened() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn curl_up_triggers_only_once_on_multi_hit() {
+    // Louse with CurlUp(2) takes two hits from Twin Strike.
+    // CurlUp should grant 2 block exactly once, not twice.
+    let monsters = vec![make_monster("BGRedLouse", "Red Louse", 10, 0, vec![make_power("BGCurlUp", 2)])];
+    let hand = vec![
+        HandCard { card: make_card("BGTwin Strike", 1, "ATTACK") },
+    ];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![]);
+
+    // Play Twin Strike (deals 1 damage twice at base)
+    state.apply(&Action::PlayCard {
+        card: make_card("BGTwin Strike", 1, "ATTACK"),
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Red Louse".into()),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // CurlUp grants 2 block once, then removes itself.
+        // Twin Strike deals 1+1=2 damage. First hit: 1 dmg absorbed by 0 block → HP 9.
+        // CurlUp triggers: +2 block, CurlUp removed.
+        // Second hit: 1 dmg absorbed by 2 block → block becomes 1.
+        // So: HP=9, block=1, no CurlUp power.
+        assert_eq!(monsters[0].hp, 9, "First hit should deal 1 HP damage");
+        assert_eq!(monsters[0].block, 1, "Block should be 2 from CurlUp minus 1 from second hit");
+        assert!(!monsters[0].powers.iter().any(|p| p.id == "BGCurlUp"),
+            "CurlUp should be removed after triggering");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
