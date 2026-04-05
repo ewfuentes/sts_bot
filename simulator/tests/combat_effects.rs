@@ -1,4 +1,4 @@
-use sts_simulator::{Action, Card, GameState, HandCard, Monster, MonsterState, Power, Screen, TargetReason};
+use sts_simulator::{Action, Card, GameState, HandCard, Monster, MonsterState, Potion, Power, Screen, TargetReason};
 
 fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
     Card {
@@ -70,6 +70,45 @@ fn combat_state_with_monsters(
         }
     });
     GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap()
+}
+
+fn combat_state_with_potions(
+    hand: Vec<HandCard>,
+    monsters: Vec<Monster>,
+    energy: u8,
+    block: u16,
+    player_powers: Vec<Power>,
+    potions: Vec<Option<Potion>>,
+) -> GameState {
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": potions,
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": hand,
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": block,
+            "player_energy": energy,
+            "player_powers": player_powers,
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap()
+}
+
+fn make_potion(id: &str) -> Potion {
+    Potion { id: id.to_string(), name: id.to_string() }
+}
+
+fn use_potion(slot: u8, id: &str) -> Action {
+    Action::UsePotion { slot, label: id.to_string() }
 }
 
 // ── Damage ──
@@ -3817,4 +3856,141 @@ fn slime_boss_splits_on_death() {
     } else {
         panic!("Expected Combat screen");
     }
+}
+
+// ── Potions ──
+
+#[test]
+fn block_potion_gains_block() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGBlock Potion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGBlock Potion"));
+
+    if let Screen::Combat { player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+    assert!(state.potions[0].is_none());
+}
+
+#[test]
+fn energy_potion_gains_energy() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGEnergy Potion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 1, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGEnergy Potion"));
+
+    if let Screen::Combat { player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 3);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn explosive_potion_damages_all() {
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+        make_monster("BGCultist", "Cultist", 9, 0, vec![]),
+    ];
+    let potions = vec![Some(make_potion("BoardGame:BGExplosive Potion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGExplosive Potion"));
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 6); // 8 - 2
+        assert_eq!(monsters[1].hp, 7); // 9 - 2
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn swift_potion_draws_cards() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGSwift Potion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGSwift Potion"));
+    assert!(state.potions[0].is_none());
+}
+
+#[test]
+fn steroid_potion_gains_temporary_strength() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGSteroidPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGSteroidPotion"));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let str_power = player_powers.iter().find(|p| p.id == "Strength");
+        assert!(str_power.is_some());
+        assert_eq!(str_power.unwrap().amount, 1);
+        let lose_str = player_powers.iter().find(|p| p.id == "LoseStrength");
+        assert!(lose_str.is_some());
+        assert_eq!(lose_str.unwrap().amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn attack_potion_grants_double_attack() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGAttackPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGAttackPotion"));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        let dbl = player_powers.iter().find(|p| p.id == "BGDoubleAttack");
+        assert!(dbl.is_some());
+        assert_eq!(dbl.unwrap().amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn use_potion_removes_from_inventory() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![
+        Some(make_potion("BoardGame:BGBlock Potion")),
+        Some(make_potion("BoardGame:BGEnergy Potion")),
+        None,
+    ];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(1, "BoardGame:BGEnergy Potion"));
+
+    assert!(state.potions[0].is_some());
+    assert!(state.potions[1].is_none());
+}
+
+#[test]
+fn use_potion_appears_in_available_actions() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGBlock Potion")), None, None];
+    let state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    let actions = state.available_actions();
+    let has_use = actions.iter().any(|a| matches!(a, Action::UsePotion { slot: 0, .. }));
+    assert!(has_use, "Expected UsePotion action for slot 0");
+}
+
+#[test]
+fn unknown_potion_not_usable() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGFairyPotion")), None, None];
+    let state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    let actions = state.available_actions();
+    let has_use = actions.iter().any(|a| matches!(a, Action::UsePotion { .. }));
+    assert!(!has_use, "Unimplemented potion should not be usable");
 }

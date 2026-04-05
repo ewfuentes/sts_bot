@@ -106,6 +106,10 @@ pub enum Action {
         target_name: Option<String>,
     },
     EndTurn,
+    UsePotion {
+        slot: u8,
+        label: String,
+    },
     DiscardPotion {
         slot: u8,
     },
@@ -144,6 +148,7 @@ impl Action {
                 None => format!("play {}", hand_index + 1),
             },
             Action::EndTurn => "end".to_string(),
+            Action::UsePotion { slot, .. } => format!("potion use {}", slot),
             Action::DiscardPotion { slot } => format!("potion discard {}", slot),
             Action::Proceed => "proceed".to_string(),
             Action::Skip => "skip".to_string(),

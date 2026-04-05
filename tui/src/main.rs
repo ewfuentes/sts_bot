@@ -583,6 +583,7 @@ fn format_action(action: &Action, state: &GameState) -> String {
             }
             format!("Discard potion slot {}", slot)
         }
+        Action::UsePotion { label, .. } => format!("Use {}", label),
         Action::Proceed => "Proceed".into(),
         Action::Skip => "Skip".into(),
     }

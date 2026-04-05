@@ -1251,6 +1251,23 @@ impl GameState {
                     self.drain_effect_queue();
                 }
             }
+            Action::UsePotion { slot, .. } => {
+                let idx = *slot as usize;
+                if idx < self.potions.len() {
+                    let info = self.potions[idx].as_ref()
+                        .and_then(|p| crate::potion_db::lookup(&p.id));
+                    if let Some(info) = info {
+                        let effects: Vec<_> = info.effects.to_vec();
+                        self.potions[idx] = None;
+                        if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                            for effect in effects {
+                                effect_queue.push_back((effect, ResolvedTarget::NoTarget));
+                            }
+                            self.drain_effect_queue();
+                        }
+                    }
+                }
+            }
             Action::DiscardPotion { slot } => {
                 let idx = *slot as usize;
                 if idx < self.potions.len() {
@@ -2315,6 +2332,17 @@ impl GameState {
             Screen::Treasure => vec![Action::OpenChest { choice_index: 0 }],
             _ => vec![],
         };
+
+        // Potion use available during combat
+        if matches!(self.current_screen(), Screen::Combat { .. }) {
+            for (i, potion) in self.potions.iter().enumerate() {
+                if let Some(p) = potion {
+                    if crate::potion_db::lookup(&p.id).is_some() {
+                        actions.push(Action::UsePotion { slot: i as u8, label: p.name.clone() });
+                    }
+                }
+            }
+        }
 
         // Potion discard available on most screens
         if !matches!(self.current_screen(), Screen::GameOver { .. }) {
