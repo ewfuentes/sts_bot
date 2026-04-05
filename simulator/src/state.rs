@@ -319,6 +319,26 @@ impl GameState {
                 );
                 queue_triggered(effect_queue, triggered);
             }
+
+            // Handle StateMachine OnBlockBreak triggers
+            if result.block_broken {
+                if let monster_db::MovePattern::StateMachine { states, .. } = &monsters[idx].pattern {
+                    let current_state = monsters[idx].move_index as usize;
+                    if let Some(state) = states.get(current_state) {
+                        for trigger in state.triggers {
+                            match trigger {
+                                monster_db::SmTrigger::OnBlockBreak { next_state } => {
+                                    monsters[idx].move_index = *next_state;
+                                    if let Some(info) = monster_db::lookup(&monsters[idx].id) {
+                                        let actual_move = monster_db::resolve_move_index(monsters[idx].pattern, *next_state);
+                                        update_monster_display(&mut monsters[idx], info, actual_move);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -952,11 +972,19 @@ impl GameState {
                         }, ResolvedTarget::NoTarget));
                     }
 
-                    // Fire card-type triggers (e.g. BGAngerPower on Skill play)
+                    // Fire card-type triggers
                     let card_type = info.card_type;
                     if card_type == card_db::CardType::Skill {
                         let triggered = power_db::collect_all_triggered_effects(
                             power_db::PowerTrigger::PlayerOnPlaySkill,
+                            player_powers,
+                            monsters,
+                        );
+                        queue_triggered(effect_queue, triggered);
+                    }
+                    if card_type == card_db::CardType::Attack {
+                        let triggered = power_db::collect_all_triggered_effects(
+                            power_db::PowerTrigger::PlayerOnPlayAttack,
                             player_powers,
                             monsters,
                         );
@@ -1258,7 +1286,7 @@ impl GameState {
             Effect::Damage(amount) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = DamageResult { took_damage: false, died: false };
+                    let mut result = DamageResult { took_damage: false, died: false, block_broken: false };
                     if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                             let dmg = calculate_damage(*amount, player_powers, &monsters[idx].powers);
@@ -1272,7 +1300,7 @@ impl GameState {
                 match target {
                     ResolvedTarget::Monster(idx) => {
                         let idx = idx as usize;
-                        let mut result = DamageResult { took_damage: false, died: false };
+                        let mut result = DamageResult { took_damage: false, died: false, block_broken: false };
                         if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                             if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                                 result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
@@ -1313,7 +1341,7 @@ impl GameState {
             Effect::DamageBasedOn(source) => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
-                    let mut result = DamageResult { took_damage: false, died: false };
+                    let mut result = DamageResult { took_damage: false, died: false, block_broken: false };
                     if let Some(Screen::Combat { monsters, player_block, exhaust_pile, hand, player_powers, .. }) = self.find_combat_mut() {
                         let base_amount = match source {
                             DamageSource::ExhaustPileSize => exhaust_pile.len() as i16,
@@ -2481,6 +2509,8 @@ struct DamageResult {
     took_damage: bool,
     /// Monster reached 0 HP and is now gone.
     died: bool,
+    /// Monster's block was reduced to 0 by this damage.
+    block_broken: bool,
 }
 
 /// Whether damage came from an Attack card or a non-attack source.
@@ -2494,6 +2524,7 @@ enum DamageKind {
 
 fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> DamageResult {
     let hp_before = monster.hp;
+    let had_block = monster.block > 0;
     if damage <= monster.block {
         monster.block -= damage;
     } else {
@@ -2502,11 +2533,21 @@ fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> 
         monster.hp = monster.hp.saturating_sub(remaining);
     }
     let took_damage = monster.hp < hp_before;
+    let block_broken = had_block && monster.block == 0;
     let died = monster.hp == 0 && monster.state == MonsterState::Alive;
     if died {
-        monster.state = MonsterState::Dead;
+        let has_death_triggers = monster.powers.iter().any(|p| {
+            power_db::lookup(&p.id)
+                .map(|info| info.triggers.iter().any(|te| te.trigger == power_db::PowerTrigger::MonsterOnDeath))
+                .unwrap_or(false)
+        });
+        if has_death_triggers {
+            monster.state = MonsterState::DeadPendingSummon;
+        } else {
+            monster.state = MonsterState::Dead;
+        }
     }
-    DamageResult { took_damage, died }
+    DamageResult { took_damage, died, block_broken }
 }
 
 fn get_power_amount(powers: &[crate::types::Power], power_id: &str) -> i32 {

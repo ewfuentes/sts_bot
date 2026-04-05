@@ -16,6 +16,8 @@ pub enum PowerTrigger {
     MonsterOnDeath,
     /// Player played a Skill card (BGAngerPower/Enraged).
     PlayerOnPlaySkill,
+    /// Player played an Attack card (Sharp Hide).
+    PlayerOnPlayAttack,
 }
 
 #[derive(Debug, Clone)]
@@ -196,6 +198,15 @@ static POWERS: &[PowerInfo] = &[
         triggers: &[TriggeredEffect {
             trigger: PowerTrigger::MonsterOnAttacked,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
+            front_effects: &[],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
+        id: "BGSharpHide",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::PlayerOnPlayAttack,
+            effects: &[Effect::DamageFixed(0)],
             front_effects: &[],
         }],
         modifiers: &[],
