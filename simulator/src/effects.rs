@@ -132,6 +132,14 @@ pub enum Effect {
     StealGold(u16),
     /// Spawn a new monster into the current combat.
     SpawnMonster { id: &'static str, hp: u16 },
+    /// Roll the die and check for die-modifying potions/relics. If any are
+    /// present, pushes a ConfirmDieRoll to the front of the queue.
+    RollDie,
+    /// Presents a choice screen to keep or change the die roll.
+    /// Pushed to front of queue by RollDie when modifiers are available.
+    ConfirmDieRoll,
+    /// Set the combat die roll to a specific value (chosen via ConfirmDieRoll).
+    SetDieRoll(u8),
     Custom(&'static str),
 }
 

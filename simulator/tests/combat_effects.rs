@@ -4223,3 +4223,91 @@ fn cunning_potion_shiv_ticks_down_vulnerable() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn gamblers_brew_offers_choice_on_end_turn() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGCultist", "Cultist", 9, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGGamblersBrew")), None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+
+    state.apply(&Action::EndTurn);
+
+    // Should be on a ChoiceSelect screen with 6 options (keep + change to 1-6)
+    if let Screen::ChoiceSelect { choices, .. } = state.current_screen() {
+        assert_eq!(choices.len(), 6);
+    } else {
+        panic!("Expected ChoiceSelect screen, got {:?}", state.current_screen());
+    }
+}
+
+#[test]
+fn gamblers_brew_keep_roll_does_not_consume() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGCultist", "Cultist", 9, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGGamblersBrew")), None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+
+    state.apply(&Action::EndTurn);
+
+    // Find the "Keep" option
+    let keep_idx = if let Screen::ChoiceSelect { choices, .. } = state.current_screen() {
+        choices.iter().position(|(label, _)| label.starts_with("Keep")).unwrap()
+    } else {
+        panic!("Expected ChoiceSelect");
+    };
+
+    state.apply(&Action::PickChoice { label: "Keep".into(), choice_index: keep_idx as u8 });
+
+    // Potion should still be present
+    assert!(state.potions[0].is_some());
+    // Should be back in combat
+    assert!(matches!(state.current_screen(), Screen::Combat { .. }));
+}
+
+#[test]
+fn gamblers_brew_change_roll_consumes_potion() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGCultist", "Cultist", 9, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGGamblersBrew")), None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+
+    state.apply(&Action::EndTurn);
+
+    // Get the current roll to find a "Change" option
+    let (change_idx, change_value) = if let Screen::ChoiceSelect { choices, .. } = state.current_screen() {
+        choices.iter().enumerate()
+            .find(|(_, (label, _))| label.starts_with("Change"))
+            .map(|(i, (label, _))| {
+                let value: u8 = label.chars().last().unwrap().to_digit(10).unwrap() as u8;
+                (i, value)
+            })
+            .unwrap()
+    } else {
+        panic!("Expected ChoiceSelect");
+    };
+
+    state.apply(&Action::PickChoice { label: "Change".into(), choice_index: change_idx as u8 });
+
+    // Potion should be consumed
+    assert!(state.potions[0].is_none());
+    // Should be back in combat with updated die roll
+    if let Screen::Combat { die_roll, .. } = state.current_screen() {
+        assert_eq!(*die_roll, Some(change_value));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn no_gamblers_brew_no_choice_screen() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let monsters = vec![make_monster("BGCultist", "Cultist", 9, 0, vec![])];
+    let potions = vec![None, None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+
+    state.apply(&Action::EndTurn);
+
+    // Should go straight back to combat, no choice screen
+    assert!(matches!(state.current_screen(), Screen::Combat { .. }));
+}

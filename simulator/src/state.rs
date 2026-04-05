@@ -1095,7 +1095,7 @@ impl GameState {
                 }
 
                 if let Screen::Combat {
-                    player_block, player_energy, player_powers, turn, effect_queue, die_roll, rng, ..
+                    player_block, player_energy, player_powers, turn, effect_queue, ..
                 } = self.current_screen_mut()
                 {
                     // Start of next turn:
@@ -1108,17 +1108,14 @@ impl GameState {
                     // 2. Turn += 1
                     *turn += 1;
 
-                    // 3. Roll the die for this turn
-                    *die_roll = Some(rng.roll_die(6));
+                    // 3. Roll the die (may pause for die-roll modification)
+                    effect_queue.push_back((Effect::RollDie, ResolvedTarget::NoTarget));
 
                     // 4. Draw 5 cards (reshuffle if needed)
                     effect_queue.push_back((Effect::Draw(5), ResolvedTarget::NoTarget));
                 }
 
-                // Drain draw effects (and any on-draw/on-shuffle triggers)
-                self.drain_effect_queue();
-
-                // 4. Start-of-turn power triggers (DemonForm, etc.)
+                // Queue start-of-turn power triggers (DemonForm, etc.)
                 if let Screen::Combat { player_powers, monsters, effect_queue, .. } = self.current_screen_mut() {
                     let triggered = power_db::collect_all_triggered_effects(
                         power_db::PowerTrigger::PlayerStartOfTurn,
@@ -1127,6 +1124,9 @@ impl GameState {
                     );
                     queue_triggered(effect_queue, triggered);
                 }
+
+                // Drain all — RollDie may pause for ConfirmDieRoll choice,
+                // remaining effects (Draw, triggers) resume when the choice resolves.
                 self.drain_effect_queue();
             }
             Action::PickHandCard { choice_index, .. } => {
@@ -1987,6 +1987,49 @@ impl GameState {
                         }
                     }
                     monsters.push(monster);
+                }
+            }
+            Effect::RollDie => {
+                if let Some(Screen::Combat { die_roll, rng, .. }) = self.find_combat_mut() {
+                    *die_roll = Some(rng.roll_die(6));
+                }
+                let has_gamblers_brew = self.potions.iter().any(|p| {
+                    p.as_ref().map_or(false, |p| p.id == "BoardGame:BGGamblersBrew")
+                });
+                if has_gamblers_brew {
+                    if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                        effect_queue.push_front((Effect::ConfirmDieRoll, ResolvedTarget::NoTarget));
+                    }
+                }
+            }
+            Effect::ConfirmDieRoll => {
+                let current_roll = if let Some(Screen::Combat { die_roll, .. }) = self.find_combat_mut() {
+                    die_roll.unwrap_or(1)
+                } else {
+                    1
+                };
+                let choices: Vec<(String, Vec<Effect>)> = (1..=6u8).map(|n| {
+                    if n == current_roll {
+                        (format!("Keep {}", n), vec![])
+                    } else {
+                        (format!("Change to {}", n), vec![Effect::SetDieRoll(n)])
+                    }
+                }).collect();
+                self.push_screen(Screen::ChoiceSelect {
+                    choices,
+                    target_index: None,
+                });
+                return EffectResult::Paused;
+            }
+            Effect::SetDieRoll(value) => {
+                if let Some(Screen::Combat { die_roll, .. }) = self.find_combat_mut() {
+                    *die_roll = Some(*value);
+                }
+                // Consume the Gambler's Brew
+                if let Some(slot) = self.potions.iter().position(|p| {
+                    p.as_ref().map_or(false, |p| p.id == "BoardGame:BGGamblersBrew")
+                }) {
+                    self.potions[slot] = None;
                 }
             }
             Effect::Custom(_id) => {
