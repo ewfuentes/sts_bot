@@ -1839,6 +1839,36 @@ impl GameState {
             Effect::StealGold(amount) => {
                 self.gold = self.gold.saturating_sub(*amount);
             }
+            Effect::SpawnMonster { id, hp } => {
+                let mut monster = Monster {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    hp: *hp,
+                    max_hp: *hp,
+                    block: 0,
+                    intent: "UNKNOWN".to_string(),
+                    damage: None,
+                    hits: 1,
+                    powers: vec![],
+                    is_gone: false,
+                    move_index: 0,
+                    pattern: monster_db::MovePattern::default(),
+                };
+                if let Some(info) = monster_db::lookup(id) {
+                    monster.pattern = info.pattern;
+                    let actual_move = monster_db::resolve_move_index(monster.pattern, 0);
+                    update_monster_display(&mut monster, info, actual_move);
+                }
+                if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
+                    let spawn_idx = monsters.len() as u8;
+                    if let Some(info) = monster_db::lookup(id) {
+                        for effect in info.starting_effects {
+                            effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(spawn_idx)));
+                        }
+                    }
+                    monsters.push(monster);
+                }
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
