@@ -291,7 +291,7 @@ pub fn collect_all_triggered_effects(
 
     // Monster powers
     for (i, monster) in monsters.iter().enumerate() {
-        if !monster.is_gone {
+        if monster.state == crate::types::MonsterState::Alive {
             collect_from_powers(trigger, &monster.powers, ResolvedTarget::Monster(i as u8), &mut result);
         }
     }

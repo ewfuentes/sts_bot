@@ -34,7 +34,7 @@ fn combat_state(
             "encounter": "test",
             "monsters": [{"id": "BGJawWorm", "name": "Jaw Worm", "hp": 8, "max_hp": 8,
                           "block": 0, "intent": "ATTACK", "damage": 3, "hits": 1,
-                          "powers": [], "is_gone": false}],
+                          "powers": [], "state": "alive"}],
             "hand": hand,
             "draw_pile": draw_pile,
             "discard_pile": discard_pile,
