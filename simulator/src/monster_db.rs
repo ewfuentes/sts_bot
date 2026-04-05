@@ -362,6 +362,32 @@ static MONSTERS: &[MonsterInfo] = &[
         starting_effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Angry", amount: 1 }],
     },
     MonsterInfo {
+        id: "BGGremlinFat",
+        moves: &[
+            MonsterMove {
+                name: "Smash",
+                effects: &[Effect::Damage(1)],
+            },
+        ],
+        pattern: MovePattern::Fixed(0),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGGremlinWizard",
+        moves: &[
+            MonsterMove {
+                name: "Charging",
+                effects: &[],
+            },
+            MonsterMove {
+                name: "Ultimate Blast",
+                effects: &[Effect::Damage(3)],
+            },
+        ],
+        pattern: MovePattern::FirstThenRepeat { first: 0, repeat: 1 },
+        starting_effects: &[],
+    },
+    MonsterInfo {
         id: "BGSentry",
         moves: &[
             MonsterMove {

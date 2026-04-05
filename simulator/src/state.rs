@@ -934,6 +934,44 @@ impl GameState {
                                         pattern,
                                     });
                                 }
+
+                                // Gremlin Team encounters: spawn 2 random gremlins
+                                if enc_id == "BoardGame:Sneaky Gremlin Team" || enc_id == "BoardGame:Angry Gremlin Team" {
+                                    let gremlin_pool: &[(&str, u16)] = &[
+                                        ("BGGremlinAngry", 4),
+                                        ("BGGremlinAngry", 4),
+                                        ("BGGremlinSneaky", 2),
+                                        ("BGGremlinSneaky", 2),
+                                        ("BGGremlinFat", 3),
+                                        ("BGGremlinFat", 3),
+                                        ("BGGremlinWizard", 4),
+                                        ("BGGremlinWizard", 4),
+                                    ];
+                                    let mut pool_indices: Vec<usize> = (0..gremlin_pool.len()).collect();
+                                    rng.shuffle(&mut pool_indices);
+                                    for &pick in &pool_indices[..2] {
+                                        let (gid, ghp) = gremlin_pool[pick];
+                                        let pattern = if let Some(info) = monster_db::lookup(gid) {
+                                            info.pattern
+                                        } else {
+                                            monster_db::MovePattern::default()
+                                        };
+                                        monsters.push(crate::types::Monster {
+                                            id: gid.to_string(),
+                                            name: gid.to_string(),
+                                            hp: ghp,
+                                            max_hp: ghp,
+                                            block: 0,
+                                            intent: "UNKNOWN".to_string(),
+                                            damage: None,
+                                            hits: 1,
+                                            powers: vec![],
+                                            state: MonsterState::Alive,
+                                            move_index: 0,
+                                            pattern,
+                                        });
+                                    }
+                                }
                             }
                         }
                         combat
