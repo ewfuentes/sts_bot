@@ -383,6 +383,64 @@ static MONSTERS: &[MonsterInfo] = &[
         },
         starting_effects: &[],
     },
+    // ── Phase 3: Bosses ──
+    MonsterInfo {
+        id: "BGHexaghost",
+        moves: &[
+            // Phase 1: Sear — 1 dmg + 1 Burn
+            MonsterMove {
+                name: "Sear",
+                effects: &[
+                    Effect::Damage(1),
+                    Effect::AddCardToPile { card_id: "BGBurn", pile: Pile::Discard, count: 1 },
+                ],
+            },
+            // Phase 2: Tackle — 2 dmg x2 + 1 Burn
+            MonsterMove {
+                name: "Tackle",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::Damage(2),
+                    Effect::AddCardToPile { card_id: "BGBurn", pile: Pile::Discard, count: 1 },
+                ],
+            },
+            // Phase 3: Inflame — 2 Burns (no damage)
+            MonsterMove {
+                name: "Inflame",
+                effects: &[
+                    Effect::AddCardToPile { card_id: "BGBurn", pile: Pile::Discard, count: 2 },
+                ],
+            },
+            // Phase 4: Strengthen — 3 dmg + 5 block
+            MonsterMove {
+                name: "Strengthen",
+                effects: &[
+                    Effect::Damage(3),
+                    Effect::MonsterBlock(5),
+                ],
+            },
+            // Phase 5: Sear — 2 dmg + 1 Burn
+            MonsterMove {
+                name: "Sear",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::AddCardToPile { card_id: "BGBurn", pile: Pile::Discard, count: 1 },
+                ],
+            },
+            // Phase 6: Inferno — 3 dmg x2 + 2 Burns + Strength
+            MonsterMove {
+                name: "Inferno",
+                effects: &[
+                    Effect::Damage(3),
+                    Effect::Damage(3),
+                    Effect::AddCardToPile { card_id: "BGBurn", pile: Pile::Discard, count: 2 },
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
+                ],
+            },
+        ],
+        pattern: MovePattern::Sequence(&[0, 1, 2, 3, 4, 5]),
+        starting_effects: &[],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static MonsterInfo> {
