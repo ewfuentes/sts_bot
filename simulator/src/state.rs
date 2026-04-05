@@ -1899,6 +1899,27 @@ impl GameState {
                 });
                 return EffectResult::Paused;
             }
+            Effect::ApplyPowerTargetSelect { power_id, amount } => {
+                self.push_screen(Screen::TargetSelect {
+                    reason: TargetReason::Pending,
+                    effects: vec![Effect::ApplyPower {
+                        target: EffectTarget::TargetEnemy,
+                        power_id,
+                        amount: *amount,
+                    }],
+                });
+                return EffectResult::Paused;
+            }
+            Effect::ShivTargetSelect => {
+                if let Some(Screen::Combat { player_powers, monsters, .. }) = self.find_combat_mut() {
+                    let tick = make_tick_down_attack_powers_effect(player_powers, monsters);
+                    self.push_screen(Screen::TargetSelect {
+                        reason: TargetReason::Pending,
+                        effects: vec![Effect::Damage(1), tick],
+                    });
+                }
+                return EffectResult::Paused;
+            }
             Effect::TickDownMonsterAttackPowers { monster_had_weak, player_had_vuln } => {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
