@@ -49,6 +49,23 @@ pub enum MovePattern {
     },
 }
 
+impl MovePattern {
+    /// Notify the state machine that block was broken. Returns the new state
+    /// if a trigger fired, or None if no transition occurred.
+    pub fn on_block_broken(&self, current_state: u8) -> Option<u8> {
+        if let MovePattern::StateMachine { states, .. } = self {
+            if let Some(state) = states.get(current_state as usize) {
+                for trigger in state.triggers {
+                    match trigger {
+                        SmTrigger::OnBlockBreak { next_state } => return Some(*next_state),
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 impl Default for MovePattern {
     fn default() -> Self {
         MovePattern::Fixed(0)

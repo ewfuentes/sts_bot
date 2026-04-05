@@ -320,22 +320,12 @@ impl GameState {
                 queue_triggered(effect_queue, triggered);
             }
 
-            // Handle StateMachine OnBlockBreak triggers
             if result.block_broken {
-                if let monster_db::MovePattern::StateMachine { states, .. } = &monsters[idx].pattern {
-                    let current_state = monsters[idx].move_index as usize;
-                    if let Some(state) = states.get(current_state) {
-                        for trigger in state.triggers {
-                            match trigger {
-                                monster_db::SmTrigger::OnBlockBreak { next_state } => {
-                                    monsters[idx].move_index = *next_state;
-                                    if let Some(info) = monster_db::lookup(&monsters[idx].id) {
-                                        let actual_move = monster_db::resolve_move_index(monsters[idx].pattern, *next_state);
-                                        update_monster_display(&mut monsters[idx], info, actual_move);
-                                    }
-                                }
-                            }
-                        }
+                if let Some(new_state) = monsters[idx].pattern.on_block_broken(monsters[idx].move_index) {
+                    monsters[idx].move_index = new_state;
+                    if let Some(info) = monster_db::lookup(&monsters[idx].id) {
+                        let actual_move = monster_db::resolve_move_index(monsters[idx].pattern, new_state);
+                        update_monster_display(&mut monsters[idx], info, actual_move);
                     }
                 }
             }
@@ -972,24 +962,13 @@ impl GameState {
                         }, ResolvedTarget::NoTarget));
                     }
 
-                    // Fire card-type triggers
-                    let card_type = info.card_type;
-                    if card_type == card_db::CardType::Skill {
-                        let triggered = power_db::collect_all_triggered_effects(
-                            power_db::PowerTrigger::PlayerOnPlaySkill,
-                            player_powers,
-                            monsters,
-                        );
-                        queue_triggered(effect_queue, triggered);
-                    }
-                    if card_type == card_db::CardType::Attack {
-                        let triggered = power_db::collect_all_triggered_effects(
-                            power_db::PowerTrigger::PlayerOnPlayAttack,
-                            player_powers,
-                            monsters,
-                        );
-                        queue_triggered(effect_queue, triggered);
-                    }
+                    // Fire card-type triggers (e.g. BGAnger on Skill, SharpHide on Attack)
+                    let triggered = power_db::collect_all_triggered_effects(
+                        power_db::PowerTrigger::PlayerOnPlay { card_type: info.card_type },
+                        player_powers,
+                        monsters,
+                    );
+                    queue_triggered(effect_queue, triggered);
                 }
 
                 // Drain the effect queue

@@ -14,10 +14,8 @@ pub enum PowerTrigger {
     /// Monster was hit by a player Attack card (Angry).
     MonsterOnAttacked,
     MonsterOnDeath,
-    /// Player played a Skill card (BGAngerPower/Enraged).
-    PlayerOnPlaySkill,
-    /// Player played an Attack card (Sharp Hide).
-    PlayerOnPlayAttack,
+    /// Player played a card of the given type (e.g. Skill triggers BGAnger, Attack triggers SharpHide).
+    PlayerOnPlay { card_type: crate::card_db::CardType },
 }
 
 #[derive(Debug, Clone)]
@@ -205,7 +203,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGSharpHide",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerOnPlayAttack,
+            trigger: PowerTrigger::PlayerOnPlay { card_type: crate::card_db::CardType::Attack },
             effects: &[Effect::DamageFixed(0)],
             front_effects: &[],
         }],
@@ -214,7 +212,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGAnger",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerOnPlaySkill,
+            trigger: PowerTrigger::PlayerOnPlay { card_type: crate::card_db::CardType::Skill },
             effects: &[Effect::DamageFixed(0)],
             front_effects: &[],
         }],
