@@ -40,6 +40,7 @@ pub enum Effect {
     },
     Draw(u8),
     GainEnergy(u8),
+    Heal(u16),
     LoseHP(u16),
     AddCardToPile {
         card_id: &'static str,
@@ -111,6 +112,12 @@ pub enum Effect {
     /// Push a TargetSelect screen for the player to choose an enemy target,
     /// then deal fixed damage to the chosen target (used by BGJuggernaut).
     DamageFixedTargetSelect { amount: i16, reason: crate::screen::TargetReason },
+    /// Push a TargetSelect screen for the player to choose an enemy target,
+    /// then apply a power to the chosen target (used by Weak/Fear potions).
+    ApplyPowerTargetSelect { power_id: &'static str, amount: i16 },
+    /// Push a TargetSelect screen for a shiv attack: Damage(1) + TickDownAttackPowers.
+    /// Snapshots weak/vuln state when executed (used by Cunning Potion).
+    ShivTargetSelect,
     /// After an Attack card resolves: tick down player's BGWeakened and
     /// monsters' BGVulnerable. Only ticks powers that were present before
     /// the card was played. `vuln_mask` is a bitmask of monster indices

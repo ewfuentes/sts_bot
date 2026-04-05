@@ -3994,3 +3994,232 @@ fn unknown_potion_not_usable() {
     let has_use = actions.iter().any(|a| matches!(a, Action::UsePotion { .. }));
     assert!(!has_use, "Unimplemented potion should not be usable");
 }
+
+#[test]
+fn blood_potion_heals() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGBloodPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+    state.hp = 5; // damage the player first
+
+    state.apply(&use_potion(0, "BoardGame:BGBloodPotion"));
+
+    assert_eq!(state.hp, 7); // 5 + 2
+}
+
+#[test]
+fn blood_potion_capped_at_max_hp() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGBloodPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+    state.hp = 9; // only 1 below max
+
+    state.apply(&use_potion(0, "BoardGame:BGBloodPotion"));
+
+    assert_eq!(state.hp, 10); // capped at max_hp, not 11
+}
+
+#[test]
+fn ancient_potion_removes_debuffs() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGAncientPotion")), None, None];
+    let player_powers = vec![
+        Power { id: "BGWeakened".into(), amount: 3 },
+        Power { id: "BGVulnerable".into(), amount: 2 },
+        Power { id: "Strength".into(), amount: 1 },
+    ];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, player_powers, potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGAncientPotion"));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(player_powers.iter().all(|p| p.id != "BGWeakened"));
+        assert!(player_powers.iter().all(|p| p.id != "BGVulnerable"));
+        // Strength should be untouched
+        let str_power = player_powers.iter().find(|p| p.id == "Strength");
+        assert!(str_power.is_some());
+        assert_eq!(str_power.unwrap().amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn elixir_potion_opens_hand_select() {
+    let hand = vec![
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+        make_hand_card("BGBash", 2, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGElixirPotion")), None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGElixirPotion"));
+
+    // Should open a hand select screen for exhausting 3 cards
+    assert!(matches!(state.current_screen(), Screen::HandSelect { .. }));
+}
+
+#[test]
+fn fire_potion_deals_fixed_damage_to_target() {
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+        make_monster("BGCultist", "Cultist", 9, 0, vec![]),
+    ];
+    let potions = vec![Some(make_potion("BoardGame:BGFire Potion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGFire Potion"));
+
+    // Should open a target select screen
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
+
+    // Pick monster 1 (Cultist)
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 1,
+        target_name: "Cultist".into(),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 8); // untouched
+        assert_eq!(monsters[1].hp, 5); // 9 - 4
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn weak_potion_applies_weakness_to_target() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGWeak Potion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGWeak Potion"));
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
+
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 0,
+        target_name: "Jaw Worm".into(),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let weak = monsters[0].powers.iter().find(|p| p.id == "BGWeakened");
+        assert!(weak.is_some());
+        assert_eq!(weak.unwrap().amount, 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn fear_potion_applies_vulnerable_to_target() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGFearPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGFearPotion"));
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
+
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 0,
+        target_name: "Jaw Worm".into(),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        let vuln = monsters[0].powers.iter().find(|p| p.id == "BGVulnerable");
+        assert!(vuln.is_some());
+        assert_eq!(vuln.unwrap().amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn cunning_potion_three_shiv_attacks() {
+    let monsters = vec![
+        make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
+        make_monster("BGCultist", "Cultist", 9, 0, vec![]),
+    ];
+    let potions = vec![Some(make_potion("BoardGame:BGCunningPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGCunningPotion"));
+
+    // First shiv: target Jaw Worm
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 0,
+        target_name: "Jaw Worm".into(),
+    });
+
+    // Second shiv: target Cultist
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 1,
+        target_name: "Cultist".into(),
+    });
+
+    // Third shiv: target Jaw Worm again
+    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 0,
+        target_name: "Jaw Worm".into(),
+    });
+
+    // Should be back to combat
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 6); // 8 - 1 - 1 = 6
+        assert_eq!(monsters[1].hp, 8); // 9 - 1 = 8
+    } else {
+        panic!("Expected Combat screen, got {:?}", state.current_screen());
+    }
+}
+
+#[test]
+fn cunning_potion_shiv_ticks_down_vulnerable() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![
+        Power { id: "BGVulnerable".into(), amount: 1 },
+    ])];
+    let potions = vec![Some(make_potion("BoardGame:BGCunningPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGCunningPotion"));
+
+    // First shiv hits vulnerable target: 1 damage + 1 bonus = 2, ticks vuln down
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 0,
+        target_name: "Jaw Worm".into(),
+    });
+
+    // Second shiv: vuln should be gone now, so just 1 damage
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 0,
+        target_name: "Jaw Worm".into(),
+    });
+
+    // Third shiv: 1 damage
+    state.apply(&Action::PickTarget {
+        reason: TargetReason::Pending,
+        target_index: 0,
+        target_name: "Jaw Worm".into(),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        // 8 - 2 (vuln) - 1 - 1 = 4
+        assert_eq!(monsters[0].hp, 4);
+        // Vulnerable should be gone
+        assert!(monsters[0].powers.iter().all(|p| p.id != "BGVulnerable"));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
