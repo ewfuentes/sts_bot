@@ -985,7 +985,16 @@ impl GameState {
                 {
                     let hand_cards: Vec<HandCard> = hand.drain(..).collect();
                     for hc in hand_cards {
-                        let is_ethereal = card_db::lookup(&hc.card.id)
+                        let info = card_db::lookup(&hc.card.id);
+
+                        // End-of-turn-in-hand effects (e.g. Burn deals damage)
+                        if let Some(effects) = info.and_then(|i| i.on_end_of_turn_in_hand) {
+                            for effect in effects {
+                                effect_queue.push_back((effect.clone(), ResolvedTarget::Player));
+                            }
+                        }
+
+                        let is_ethereal = info
                             .map(|i| i.is_ethereal(hc.card.upgraded))
                             .unwrap_or(false);
                         if is_ethereal {
@@ -2445,18 +2454,22 @@ fn queue_triggered(
 
 fn update_monster_display(monster: &mut crate::types::Monster, info: &monster_db::MonsterInfo, move_idx: u8) {
     if let Some(next_move) = info.moves.get(move_idx as usize) {
-        let has_damage = next_move.effects.iter().any(|e| matches!(e, Effect::Damage(_)));
-        if has_damage {
-            monster.intent = "ATTACK".to_string();
-            for e in next_move.effects {
-                if let Effect::Damage(d) = e {
-                    monster.damage = Some(*d);
-                    monster.hits = 1;
-                    break;
-                }
-            }
-        } else {
+        let damage_effects: Vec<i16> = next_move.effects.iter()
+            .filter_map(|e| if let Effect::Damage(d) = e { Some(*d) } else { None })
+            .collect();
+        let has_buff = next_move.effects.iter().any(|e| matches!(e,
+            Effect::ApplyPower { .. } | Effect::MonsterBlock(_) | Effect::AddCardToPile { .. }));
+
+        if !damage_effects.is_empty() {
+            monster.intent = if has_buff { "ATTACK_BUFF".to_string() } else { "ATTACK".to_string() };
+            monster.damage = Some(damage_effects[0]);
+            monster.hits = damage_effects.len() as u8;
+        } else if has_buff {
             monster.intent = "BUFF".to_string();
+            monster.damage = None;
+            monster.hits = 1;
+        } else {
+            monster.intent = "UNKNOWN".to_string();
             monster.damage = None;
             monster.hits = 1;
         }

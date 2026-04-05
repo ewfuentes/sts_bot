@@ -58,6 +58,8 @@ pub struct CardInfo {
     pub play_condition: Option<PlayCondition>,
     /// Effects triggered when this card is exhausted (by any means).
     pub on_exhaust: Option<&'static [Effect]>,
+    /// Effects triggered at end of turn while this card is in hand (e.g. Burn).
+    pub on_end_of_turn_in_hand: Option<&'static [Effect]>,
     // Upgrade overrides (None = same as base)
     pub upgraded_cost: Option<i8>,
     pub upgraded_effects: Option<&'static [Effect]>,
@@ -86,6 +88,7 @@ impl CardInfo {
             rebound: false,
             play_condition: None,
             on_exhaust: None,
+            on_end_of_turn_in_hand: None,
             upgraded_cost: None,
             upgraded_effects: None,
             upgraded_exhaust: None,
@@ -111,6 +114,11 @@ impl CardInfo {
 
     const fn on_exhaust(mut self, effects: &'static [Effect]) -> Self {
         self.on_exhaust = Some(effects);
+        self
+    }
+
+    const fn on_end_of_turn_in_hand(mut self, effects: &'static [Effect]) -> Self {
+        self.on_end_of_turn_in_hand = Some(effects);
         self
     }
 
@@ -421,6 +429,9 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("Dazed", -2, CardType::Status, CardTarget::None, &[])
             .ethereal(),
         CardInfo::new("Wound", -2, CardType::Status, CardTarget::None, &[]),
+        // BGBurn: Unplayable. At end of turn, deal 1 blockable damage to player.
+        CardInfo::new("BGBurn", -2, CardType::Status, CardTarget::None, &[])
+            .on_end_of_turn_in_hand(&[DamageFixed(1)]),
         CardInfo::new("AscendersBane", -2, CardType::Curse, CardTarget::None, &[])
             .ethereal(),
     ];
