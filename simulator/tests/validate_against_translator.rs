@@ -60,6 +60,7 @@ fn action_type(action: &Action) -> &str {
         Action::PickCustomScreenOption { .. } => "pick_custom_screen_option",
         Action::PlayCard { .. } => "play_card",
         Action::EndTurn => "end_turn",
+        Action::UsePotion { .. } => "use_potion",
         Action::DiscardPotion { .. } => "discard_potion",
         Action::Proceed => "proceed",
         Action::Skip => "skip",

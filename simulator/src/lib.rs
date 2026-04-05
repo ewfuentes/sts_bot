@@ -3,6 +3,7 @@ pub mod dungeon;
 pub mod effects;
 pub mod encounter_db;
 pub mod monster_db;
+pub mod potion_db;
 pub mod power_db;
 pub mod rng;
 mod action;
