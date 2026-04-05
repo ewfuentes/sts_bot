@@ -8,7 +8,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
-use sts_simulator::{Action, ActMap, GameState, MapChoice, MapNode, MapNodeKind, Screen};
+use sts_simulator::{Action, GameState, MapChoice, MapNodeKind, Screen};
 
 struct App {
     state: GameState,
@@ -38,14 +38,10 @@ impl App {
             .push(format!("> {}", format_action(&action, &self.state)));
         self.state.apply(&action);
 
-        // If we've popped back to an empty stack, show the map again
-        if matches!(self.state.current_screen(), Screen::Complete) && self.state.screen.len() == 1 {
-            let (map, choices) = make_map();
-            self.state.map = Some(map);
-            self.state.set_screen(Screen::Map {
-                current_node: 0,
-                available_nodes: choices,
-            });
+        // If we've popped back to Complete with only the map underneath,
+        // pop Complete to reveal the Map screen (with updated available_nodes)
+        if matches!(self.state.current_screen(), Screen::Complete) && self.state.screen.len() > 1 {
+            self.state.pop_screen();
         }
 
         self.actions = self.state.available_actions();
@@ -53,75 +49,18 @@ impl App {
     }
 }
 
-/// Encounters that only use implemented monsters.
-const PLAYABLE_ENCOUNTERS: &[(&str, &str, MapNodeKind)] = &[
-    // Weak encounters
-    ("Jaw Worm", "BoardGame:Jaw Worm (Easy)", MapNodeKind::Monster),
-    ("Cultist", "BoardGame:Cultist", MapNodeKind::Monster),
-    ("Small Slimes", "BoardGame:Easy Small Slimes", MapNodeKind::Monster),
-    ("2 Louse", "BoardGame:2 Louse", MapNodeKind::Monster),
-    // Strong encounters
-    ("Cultist+Slime", "BoardGame:Cultist and SpikeSlime", MapNodeKind::Monster),
-    ("Cultist+Louse", "BoardGame:Cultist and Louse", MapNodeKind::Monster),
-    ("Fungi Beasts", "BoardGame:Fungi Beasts", MapNodeKind::Monster),
-    ("Slime Trio", "BoardGame:Slime Trio", MapNodeKind::Monster),
-    ("3 Louse", "BoardGame:3 Louse (Hard)", MapNodeKind::Monster),
-    ("Blue Slaver", "BoardGame:Blue Slaver", MapNodeKind::Monster),
-    ("Red Slaver", "BoardGame:Red Slaver", MapNodeKind::Monster),
-    ("Jaw Worm (M)", "BoardGame:Jaw Worm (Medium)", MapNodeKind::Monster),
-    ("Sneaky Gremlin", "BoardGame:Sneaky Gremlin Team", MapNodeKind::Monster),
-    ("Angry Gremlin", "BoardGame:Angry Gremlin Team", MapNodeKind::Monster),
-    ("Looter", "BoardGame:Looter", MapNodeKind::Monster),
-    // Elites
-    ("Gremlin Nob", "BoardGame:Gremlin Nob", MapNodeKind::Elite),
-    ("Lagavulin", "BoardGame:Lagavulin", MapNodeKind::Elite),
-    ("3 Sentries", "BoardGame:3 Sentries", MapNodeKind::Elite),
-    // Bosses
-    ("Hexaghost", "BoardGame:Hexaghost", MapNodeKind::Boss),
-    ("The Guardian", "BoardGame:TheGuardian", MapNodeKind::Boss),
-    ("Slime Boss", "BoardGame:SlimeBoss", MapNodeKind::Boss),
-    ("Large Slime", "BoardGame:Large Slime", MapNodeKind::Monster),
-    // Rest
-    ("Rest", "", MapNodeKind::Rest),
-];
-
-fn make_map() -> (ActMap, Vec<MapChoice>) {
-    let mut rng = sts_simulator::Rng::from_seed(42);
-    let nodes: Vec<MapNode> = PLAYABLE_ENCOUNTERS
-        .iter()
-        .enumerate()
-        .map(|(i, (_, encounter_id, kind))| {
-            let seed = rng.derive_seed();
-            MapNode {
-                x: i as u8,
-                y: 0,
-                kind: *kind,
-                edges: vec![],
-                encounter: if encounter_id.is_empty() {
-                    None
-                } else {
-                    Some(encounter_id.to_string())
-                },
-                seed,
-            }
-        })
-        .collect();
-
-    let choices: Vec<MapChoice> = PLAYABLE_ENCOUNTERS
-        .iter()
-        .enumerate()
-        .map(|(i, (label, _, kind))| MapChoice {
-            label: label.to_string(),
-            kind: *kind,
-            node_index: i,
-        })
-        .collect();
-
-    (ActMap { nodes }, choices)
-}
-
 fn make_initial_state() -> GameState {
-    let (map, choices) = make_map();
+    let mut rng = sts_simulator::Rng::from_seed(42);
+    let (map, start_node) = sts_simulator::dungeon::generate_act1_map(&mut rng);
+
+    // Build the initial map choices — the starting node is the only choice
+    let start = &map.nodes[start_node];
+    let initial_choices = vec![MapChoice {
+        label: format!("{:?} ({},{})", start.kind, start.x, start.y),
+        kind: start.kind,
+        node_index: start_node,
+    }];
+
     let json = serde_json::json!({
         "hp": 8, "max_hp": 8, "gold": 5, "floor": 0, "act": 1, "ascension": 0,
         "deck": [
@@ -144,7 +83,7 @@ fn make_initial_state() -> GameState {
         "actions": [],
         "screen": {
             "type": "map",
-            "available_nodes": choices.iter().map(|c| serde_json::json!({
+            "available_nodes": initial_choices.iter().map(|c| serde_json::json!({
                 "label": c.label,
                 "kind": c.kind,
                 "node_index": c.node_index,
