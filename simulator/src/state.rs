@@ -840,21 +840,45 @@ impl GameState {
                 let kind = *kind;
                 let choice_idx = *choice_index as usize;
 
-                // Look up the encounter ID and node seed from the map
-                let (encounter_id, node_seed) = if let Screen::Map { available_nodes, .. } = self.current_screen() {
+                // Look up the encounter ID, node seed, and node index from the map
+                let (encounter_id, node_seed, node_idx) = if let Screen::Map { available_nodes, .. } = self.current_screen() {
                     if choice_idx < available_nodes.len() {
-                        let node_idx = available_nodes[choice_idx].node_index;
-                        if let Some(node) = self.map.as_ref().and_then(|m| m.nodes.get(node_idx)) {
-                            (node.encounter.clone(), node.seed)
+                        let ni = available_nodes[choice_idx].node_index;
+                        if let Some(node) = self.map.as_ref().and_then(|m| m.nodes.get(ni)) {
+                            (node.encounter.clone(), node.seed, ni)
                         } else {
-                            (None, 0)
+                            (None, 0, 0)
                         }
                     } else {
-                        (None, 0)
+                        (None, 0, 0)
                     }
                 } else {
-                    (None, 0)
+                    (None, 0, 0)
                 };
+
+                // Compute next choices from the visited node's edges
+                let next_choices: Vec<crate::screen::MapChoice> = self.map.as_ref()
+                    .map(|map| {
+                        map.nodes[node_idx].edges.iter().filter_map(|&edge_idx| {
+                            let dest = &map.nodes[edge_idx];
+                            if dest.kind == MapNodeKind::Unknown {
+                                None
+                            } else {
+                                Some(crate::screen::MapChoice {
+                                    label: format!("{:?} ({},{})", dest.kind, dest.x, dest.y),
+                                    kind: dest.kind,
+                                    node_index: edge_idx,
+                                })
+                            }
+                        }).collect()
+                    })
+                    .unwrap_or_default();
+
+                // Update current_node and available_nodes on the Map screen
+                if let Screen::Map { current_node, available_nodes, .. } = self.current_screen_mut() {
+                    *current_node = node_idx;
+                    *available_nodes = next_choices;
+                }
 
                 let screen = match kind {
                     MapNodeKind::Monster | MapNodeKind::Elite | MapNodeKind::Boss => {
@@ -913,7 +937,7 @@ impl GameState {
                     MapNodeKind::Treasure => Screen::Treasure,
                     MapNodeKind::Event | MapNodeKind::Unknown => Screen::Complete,
                 };
-                self.set_screen(screen);
+                self.push_screen(screen);
 
                 // Initialize combat: shuffle deck, draw hand, apply monster starting effects
                 if matches!(kind, MapNodeKind::Monster | MapNodeKind::Elite | MapNodeKind::Boss) {

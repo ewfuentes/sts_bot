@@ -8,24 +8,28 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph},
 };
-use sts_simulator::{Action, ActMap, GameState, MapChoice, MapNode, MapNodeKind, Screen};
+use sts_simulator::{Action, GameState, MapChoice, MapNodeKind, Screen};
 
 struct App {
     state: GameState,
     actions: Vec<Action>,
     selected: usize,
     log: Vec<String>,
+    /// Which screen in the stack to display (0 = bottom, len-1 = top)
+    view_screen: usize,
 }
 
 impl App {
     fn new() -> Self {
         let state = make_initial_state();
         let actions = state.available_actions();
+        let view_screen = state.screen.len().saturating_sub(1);
         App {
             state,
             actions,
             selected: 0,
             log: vec!["Run started. Determinized with seed 42.".into()],
+            view_screen,
         }
     }
 
@@ -38,90 +42,30 @@ impl App {
             .push(format!("> {}", format_action(&action, &self.state)));
         self.state.apply(&action);
 
-        // If we've popped back to an empty stack, show the map again
-        if matches!(self.state.current_screen(), Screen::Complete) && self.state.screen.len() == 1 {
-            let (map, choices) = make_map();
-            self.state.map = Some(map);
-            self.state.set_screen(Screen::Map {
-                current_node: 0,
-                available_nodes: choices,
-            });
+        // If we've popped back to Complete with only the map underneath,
+        // pop Complete to reveal the Map screen (with updated available_nodes)
+        if matches!(self.state.current_screen(), Screen::Complete) && self.state.screen.len() > 1 {
+            self.state.pop_screen();
         }
 
         self.actions = self.state.available_actions();
         self.selected = 0;
+        self.view_screen = self.state.screen.len().saturating_sub(1);
     }
 }
 
-/// Encounters that only use implemented monsters.
-const PLAYABLE_ENCOUNTERS: &[(&str, &str, MapNodeKind)] = &[
-    // Weak encounters
-    ("Jaw Worm", "BoardGame:Jaw Worm (Easy)", MapNodeKind::Monster),
-    ("Cultist", "BoardGame:Cultist", MapNodeKind::Monster),
-    ("Small Slimes", "BoardGame:Easy Small Slimes", MapNodeKind::Monster),
-    ("2 Louse", "BoardGame:2 Louse", MapNodeKind::Monster),
-    // Strong encounters
-    ("Cultist+Slime", "BoardGame:Cultist and SpikeSlime", MapNodeKind::Monster),
-    ("Cultist+Louse", "BoardGame:Cultist and Louse", MapNodeKind::Monster),
-    ("Fungi Beasts", "BoardGame:Fungi Beasts", MapNodeKind::Monster),
-    ("Slime Trio", "BoardGame:Slime Trio", MapNodeKind::Monster),
-    ("3 Louse", "BoardGame:3 Louse (Hard)", MapNodeKind::Monster),
-    ("Blue Slaver", "BoardGame:Blue Slaver", MapNodeKind::Monster),
-    ("Red Slaver", "BoardGame:Red Slaver", MapNodeKind::Monster),
-    ("Jaw Worm (M)", "BoardGame:Jaw Worm (Medium)", MapNodeKind::Monster),
-    ("Sneaky Gremlin", "BoardGame:Sneaky Gremlin Team", MapNodeKind::Monster),
-    ("Angry Gremlin", "BoardGame:Angry Gremlin Team", MapNodeKind::Monster),
-    ("Looter", "BoardGame:Looter", MapNodeKind::Monster),
-    // Elites
-    ("Gremlin Nob", "BoardGame:Gremlin Nob", MapNodeKind::Elite),
-    ("Lagavulin", "BoardGame:Lagavulin", MapNodeKind::Elite),
-    ("3 Sentries", "BoardGame:3 Sentries", MapNodeKind::Elite),
-    // Bosses
-    ("Hexaghost", "BoardGame:Hexaghost", MapNodeKind::Boss),
-    ("The Guardian", "BoardGame:TheGuardian", MapNodeKind::Boss),
-    ("Slime Boss", "BoardGame:SlimeBoss", MapNodeKind::Boss),
-    ("Large Slime", "BoardGame:Large Slime", MapNodeKind::Monster),
-    // Rest
-    ("Rest", "", MapNodeKind::Rest),
-];
-
-fn make_map() -> (ActMap, Vec<MapChoice>) {
-    let mut rng = sts_simulator::Rng::from_seed(42);
-    let nodes: Vec<MapNode> = PLAYABLE_ENCOUNTERS
-        .iter()
-        .enumerate()
-        .map(|(i, (_, encounter_id, kind))| {
-            let seed = rng.derive_seed();
-            MapNode {
-                x: i as u8,
-                y: 0,
-                kind: *kind,
-                edges: vec![],
-                encounter: if encounter_id.is_empty() {
-                    None
-                } else {
-                    Some(encounter_id.to_string())
-                },
-                seed,
-            }
-        })
-        .collect();
-
-    let choices: Vec<MapChoice> = PLAYABLE_ENCOUNTERS
-        .iter()
-        .enumerate()
-        .map(|(i, (label, _, kind))| MapChoice {
-            label: label.to_string(),
-            kind: *kind,
-            node_index: i,
-        })
-        .collect();
-
-    (ActMap { nodes }, choices)
-}
-
 fn make_initial_state() -> GameState {
-    let (map, choices) = make_map();
+    let mut rng = sts_simulator::Rng::from_seed(42);
+    let (map, start_node) = sts_simulator::dungeon::generate_act1_map(&mut rng);
+
+    // Build the initial map choices — the starting node is the only choice
+    let start = &map.nodes[start_node];
+    let initial_choices = vec![MapChoice {
+        label: format!("{:?} ({},{})", start.kind, start.x, start.y),
+        kind: start.kind,
+        node_index: start_node,
+    }];
+
     let json = serde_json::json!({
         "hp": 8, "max_hp": 8, "gold": 5, "floor": 0, "act": 1, "ascension": 0,
         "deck": [
@@ -144,7 +88,7 @@ fn make_initial_state() -> GameState {
         "actions": [],
         "screen": {
             "type": "map",
-            "available_nodes": choices.iter().map(|c| serde_json::json!({
+            "available_nodes": initial_choices.iter().map(|c| serde_json::json!({
                 "label": c.label,
                 "kind": c.kind,
                 "node_index": c.node_index,
@@ -186,6 +130,20 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                         app.selected += 1;
                     }
                 }
+                KeyCode::Tab => {
+                    if !app.state.screen.is_empty() {
+                        app.view_screen = (app.view_screen + 1) % app.state.screen.len();
+                    }
+                }
+                KeyCode::BackTab => {
+                    if !app.state.screen.is_empty() {
+                        app.view_screen = if app.view_screen == 0 {
+                            app.state.screen.len() - 1
+                        } else {
+                            app.view_screen - 1
+                        };
+                    }
+                }
                 KeyCode::Enter => app.select_action(),
                 _ => {}
             }
@@ -203,10 +161,10 @@ fn draw(frame: &mut Frame, app: &App) {
         .split(outer[0]);
 
     // Left panel: game state
-    let status = build_status(&app.state);
+    let status = build_status(&app.state, app.view_screen);
     let status_block = Paragraph::new(status)
         .wrap(ratatui::widgets::Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Game State"));
+        .block(Block::default().borders(Borders::ALL).title("Game State (Tab to switch)"));
     frame.render_widget(status_block, top[0]);
 
     // Right panel: actions
@@ -244,7 +202,7 @@ fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(log_list, outer[1]);
 }
 
-fn build_status(state: &GameState) -> Vec<Line<'static>> {
+fn build_status(state: &GameState, view_screen: usize) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(vec![
             Span::raw("HP: "),
@@ -260,16 +218,49 @@ fn build_status(state: &GameState) -> Vec<Line<'static>> {
         Line::from(""),
     ];
 
-    let screen_name = format_screen_name(state.current_screen());
-    lines.push(Line::from(vec![
-        Span::raw("Screen: "),
-        Span::styled(screen_name, Style::default().fg(Color::Cyan)),
-        Span::raw(format!("  (stack: {})", state.screen.len())),
-    ]));
+    // Screen stack indicator
+    let stack_line: Vec<Span> = state.screen.iter().enumerate().map(|(i, s)| {
+        let name = format_screen_name(s);
+        if i == view_screen {
+            Span::styled(format!("[{}]", name), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(format!(" {} ", name), Style::default().fg(Color::DarkGray))
+        }
+    }).collect();
+    lines.push(Line::from(stack_line));
     lines.push(Line::from(""));
 
-    // Show combat-specific details when in combat
-    if let Some(combat) = find_combat(&state.screen) {
+    // Show details for the viewed screen
+    let viewed = state.screen.get(view_screen);
+    if let Some(Screen::Map { current_node, .. }) = viewed {
+        // Map visualization
+        if let Some(map) = &state.map {
+            let current = *current_node;
+            for row in (0..13).rev() {
+                let mut row_str = format!("{:>2} ", row);
+                for col in 0..7 {
+                    let idx = row * 7 + col;
+                    let node = &map.nodes[idx];
+                    let ch = match node.kind {
+                        MapNodeKind::Monster => 'M',
+                        MapNodeKind::Elite => 'E',
+                        MapNodeKind::Boss => 'B',
+                        MapNodeKind::Rest => 'R',
+                        MapNodeKind::Shop => '$',
+                        MapNodeKind::Event => '?',
+                        MapNodeKind::Treasure => 'T',
+                        MapNodeKind::Unknown => '.',
+                    };
+                    if idx == current {
+                        row_str.push_str(&format!("[{}]", ch));
+                    } else {
+                        row_str.push_str(&format!(" {} ", ch));
+                    }
+                }
+                lines.push(Line::from(row_str));
+            }
+        }
+    } else if let Some(combat) = find_combat(&state.screen) {
         if let Screen::Combat {
             monsters,
             hand,
