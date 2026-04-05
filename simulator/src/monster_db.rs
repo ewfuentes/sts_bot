@@ -13,11 +13,20 @@ pub struct MonsterMove {
     pub effects: &'static [Effect],
 }
 
+/// Triggers that can override a state machine transition.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SmTrigger {
+    /// When this monster's block reaches 0 from damage, transition to next_state.
+    OnBlockBreak { next_state: u8 },
+}
+
 /// A single state in a monster state machine.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SmState {
     pub move_index: u8,
     pub next_state: u8,
+    /// Triggers that can override next_state while in this state.
+    pub triggers: &'static [SmTrigger],
 }
 
 /// How a monster selects its next move.
@@ -38,6 +47,23 @@ pub enum MovePattern {
     StateMachine {
         states: &'static [SmState],
     },
+}
+
+impl MovePattern {
+    /// Notify the state machine that block was broken. Returns the new state
+    /// if a trigger fired, or None if no transition occurred.
+    pub fn on_block_broken(&self, current_state: u8) -> Option<u8> {
+        if let MovePattern::StateMachine { states, .. } = self {
+            if let Some(state) = states.get(current_state as usize) {
+                for trigger in state.triggers {
+                    match trigger {
+                        SmTrigger::OnBlockBreak { next_state } => return Some(*next_state),
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Default for MovePattern {
@@ -375,10 +401,10 @@ static MONSTERS: &[MonsterInfo] = &[
         // State machine: Sleep(0) → Attack(1) → Attack(2) → Debuff(3) → Attack(1) ...
         pattern: MovePattern::StateMachine {
             states: &[
-                SmState { move_index: 0, next_state: 1 }, // State 0: Sleep → state 1
-                SmState { move_index: 1, next_state: 2 }, // State 1: Attack → state 2
-                SmState { move_index: 1, next_state: 3 }, // State 2: Attack → state 3
-                SmState { move_index: 2, next_state: 1 }, // State 3: Debuff → state 1
+                SmState { move_index: 0, next_state: 1, triggers: &[] }, // State 0: Sleep → state 1
+                SmState { move_index: 1, next_state: 2, triggers: &[] }, // State 1: Attack → state 2
+                SmState { move_index: 1, next_state: 3, triggers: &[] }, // State 2: Attack → state 3
+                SmState { move_index: 2, next_state: 1, triggers: &[] }, // State 3: Debuff → state 1
             ],
         },
         starting_effects: &[],
@@ -439,6 +465,55 @@ static MONSTERS: &[MonsterInfo] = &[
             },
         ],
         pattern: MovePattern::Sequence(&[0, 1, 2, 3, 4, 5]),
+        starting_effects: &[],
+    },
+    MonsterInfo {
+        id: "BGTheGuardian",
+        moves: &[
+            // Move 0: Whirlwind + Charge Up — 2 dmg + 5 block
+            MonsterMove {
+                name: "Whirlwind",
+                effects: &[
+                    Effect::Damage(2),
+                    Effect::MonsterBlock(5),
+                ],
+            },
+            // Move 1: Fierce Bash — 6 dmg
+            MonsterMove {
+                name: "Fierce Bash",
+                effects: &[Effect::Damage(6)],
+            },
+            // Move 2: Close Up — apply Sharp Hide
+            MonsterMove {
+                name: "Close Up",
+                effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGSharpHide", amount: 1 }],
+            },
+            // Move 3: Roll Attack — 2 dmg
+            MonsterMove {
+                name: "Roll Attack",
+                effects: &[Effect::Damage(2)],
+            },
+            // Move 4: Twin Slam — 4 dmg + Strength, remove Sharp Hide
+            MonsterMove {
+                name: "Twin Slam",
+                effects: &[
+                    Effect::Damage(4),
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "Strength", amount: 1 },
+                    Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGSharpHide", amount: i16::MIN },
+                ],
+            },
+        ],
+        pattern: MovePattern::StateMachine {
+            states: &[
+                // Attack Mode
+                SmState { move_index: 0, next_state: 1, triggers: &[] },                                          // 0: Whirlwind → Fierce Bash
+                SmState { move_index: 1, next_state: 0, triggers: &[SmTrigger::OnBlockBreak { next_state: 2 }] },  // 1: Fierce Bash → Whirlwind (or Close Up on block break)
+                // Defensive Mode
+                SmState { move_index: 2, next_state: 3, triggers: &[] },                                           // 2: Close Up → Roll Attack
+                SmState { move_index: 3, next_state: 4, triggers: &[] },                                           // 3: Roll Attack → Twin Slam
+                SmState { move_index: 4, next_state: 0, triggers: &[] },                                           // 4: Twin Slam → Whirlwind (back to Attack Mode)
+            ],
+        },
         starting_effects: &[],
     },
 ];
