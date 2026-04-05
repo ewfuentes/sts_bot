@@ -3745,20 +3745,13 @@ fn angry_triggers_on_attack_not_on_fixed_damage() {
 
 #[test]
 fn guardian_mode_shift_on_block_break() {
-    // Guardian starts in state 1 (Fierce Bash) with 5 block.
-    // Breaking its block should trigger OnBlockBreak → state 2 (Close Up).
     let guardian = make_monster("BGTheGuardian", "The Guardian", 40, 5, vec![]);
-
     let monsters = vec![guardian];
-    let hand = vec![
-        HandCard { card: make_card("BGStrike_R", 1, "ATTACK") },
-    ];
-    // Player has 5 Strength so Strike deals 6 damage (enough to break 5 block + 1 HP damage)
+    let hand = vec![HandCard { card: make_card("BGStrike_R", 1, "ATTACK") }];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![make_power("Strength", 5)]);
 
-    // Set pattern and state after deserialization (pattern is serde(skip))
     if let Screen::Combat { monsters, .. } = state.current_screen_mut() {
-        monsters[0].move_index = 1; // Fierce Bash state
+        monsters[0].move_index = 1;
         monsters[0].pattern = sts_simulator::monster_db::MovePattern::StateMachine {
             states: &[
                 sts_simulator::monster_db::SmState { move_index: 0, next_state: 1, triggers: &[] },
@@ -3772,7 +3765,6 @@ fn guardian_mode_shift_on_block_break() {
         };
     }
 
-    // Play Strike → breaks Guardian's 5 block → OnBlockBreak triggers → state shifts to 2 (Close Up)
     state.apply(&Action::PlayCard {
         card: make_card("BGStrike_R", 1, "ATTACK"),
         hand_index: 0,
@@ -3784,6 +3776,44 @@ fn guardian_mode_shift_on_block_break() {
         assert_eq!(monsters[0].block, 0, "Block should be broken");
         assert_eq!(monsters[0].move_index, 2, "Should transition to state 2 (Close Up)");
         assert_eq!(monsters[0].intent, "BUFF", "Close Up intent should be BUFF");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn slime_boss_splits_on_death() {
+    let monsters = vec![make_monster("BGSlimeBoss", "Slime Boss", 1, 0, vec![make_power("BGSplit", 1)])];
+    let hand = vec![HandCard { card: make_card("BGStrike_R", 1, "ATTACK") }];
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![]);
+
+    state.apply(&Action::PlayCard {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("Slime Boss".into()),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].state, MonsterState::DeadPendingSummon,
+            "Slime Boss should be DeadPendingSummon");
+        assert_eq!(monsters.len(), 1, "No children spawned yet");
+    } else {
+        panic!("Expected Combat screen (combat should not end with DeadPendingSummon)");
+    }
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].state, MonsterState::Dead, "Slime Boss should be Dead");
+        assert_eq!(monsters.len(), 4, "Should have 4 monsters (1 dead boss + 3 spawned)");
+        assert_eq!(monsters[1].id, "BGAcidSlime_L");
+        assert_eq!(monsters[1].hp, 12);
+        assert_eq!(monsters[2].id, "BGAcidSlime_M");
+        assert_eq!(monsters[2].hp, 5);
+        assert_eq!(monsters[3].id, "BGSpikeSlime_M");
+        assert_eq!(monsters[3].hp, 5);
+        assert!(monsters[1].state == MonsterState::Alive);
     } else {
         panic!("Expected Combat screen");
     }

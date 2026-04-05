@@ -516,6 +516,55 @@ static MONSTERS: &[MonsterInfo] = &[
         },
         starting_effects: &[],
     },
+    MonsterInfo {
+        id: "BGSlimeBoss",
+        moves: &[
+            MonsterMove {
+                name: "Sticky",
+                effects: &[
+                    Effect::AddCardToPile { card_id: "BGSlimed", pile: Pile::Discard, count: 3 },
+                ],
+            },
+            MonsterMove {
+                name: "Tackle",
+                effects: &[
+                    Effect::Damage(3),
+                    Effect::AddCardToPile { card_id: "BGSlimed", pile: Pile::Discard, count: 2 },
+                ],
+            },
+            MonsterMove {
+                name: "Slam",
+                effects: &[Effect::Damage(6)],
+            },
+        ],
+        pattern: MovePattern::Sequence(&[0, 1, 2]),
+        starting_effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGSplit", amount: 1 }],
+    },
+    MonsterInfo {
+        id: "BGAcidSlime_L",
+        moves: &[
+            MonsterMove {
+                name: "Splash",
+                effects: &[Effect::Damage(1)],
+            },
+            MonsterMove {
+                name: "Wound",
+                effects: &[
+                    Effect::Damage(4),
+                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
+                ],
+            },
+            MonsterMove {
+                name: "Slime Tackle",
+                effects: &[
+                    Effect::Damage(3),
+                    Effect::AddCardToPile { card_id: "BGSlimed", pile: Pile::Discard, count: 2 },
+                ],
+            },
+        ],
+        pattern: MovePattern::Sequence(&[0, 1, 2]),
+        starting_effects: &[],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static MonsterInfo> {
