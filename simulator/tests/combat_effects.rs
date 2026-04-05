@@ -3742,3 +3742,49 @@ fn angry_triggers_on_attack_not_on_fixed_damage() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn guardian_mode_shift_on_block_break() {
+    // Guardian starts in state 1 (Fierce Bash) with 5 block.
+    // Breaking its block should trigger OnBlockBreak → state 2 (Close Up).
+    let guardian = make_monster("BGTheGuardian", "The Guardian", 40, 5, vec![]);
+
+    let monsters = vec![guardian];
+    let hand = vec![
+        HandCard { card: make_card("BGStrike_R", 1, "ATTACK") },
+    ];
+    // Player has 5 Strength so Strike deals 6 damage (enough to break 5 block + 1 HP damage)
+    let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![make_power("Strength", 5)]);
+
+    // Set pattern and state after deserialization (pattern is serde(skip))
+    if let Screen::Combat { monsters, .. } = state.current_screen_mut() {
+        monsters[0].move_index = 1; // Fierce Bash state
+        monsters[0].pattern = sts_simulator::monster_db::MovePattern::StateMachine {
+            states: &[
+                sts_simulator::monster_db::SmState { move_index: 0, next_state: 1, triggers: &[] },
+                sts_simulator::monster_db::SmState { move_index: 1, next_state: 0, triggers: &[
+                    sts_simulator::monster_db::SmTrigger::OnBlockBreak { next_state: 2 },
+                ]},
+                sts_simulator::monster_db::SmState { move_index: 2, next_state: 3, triggers: &[] },
+                sts_simulator::monster_db::SmState { move_index: 3, next_state: 4, triggers: &[] },
+                sts_simulator::monster_db::SmState { move_index: 4, next_state: 0, triggers: &[] },
+            ],
+        };
+    }
+
+    // Play Strike → breaks Guardian's 5 block → OnBlockBreak triggers → state shifts to 2 (Close Up)
+    state.apply(&Action::PlayCard {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        hand_index: 0,
+        target_index: Some(0),
+        target_name: Some("The Guardian".into()),
+    });
+
+    if let Screen::Combat { monsters, .. } = state.current_screen() {
+        assert_eq!(monsters[0].block, 0, "Block should be broken");
+        assert_eq!(monsters[0].move_index, 2, "Should transition to state 2 (Close Up)");
+        assert_eq!(monsters[0].intent, "BUFF", "Close Up intent should be BUFF");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
