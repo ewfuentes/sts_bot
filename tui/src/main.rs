@@ -15,17 +15,21 @@ struct App {
     actions: Vec<Action>,
     selected: usize,
     log: Vec<String>,
+    /// Which screen in the stack to display (0 = bottom, len-1 = top)
+    view_screen: usize,
 }
 
 impl App {
     fn new() -> Self {
         let state = make_initial_state();
         let actions = state.available_actions();
+        let view_screen = state.screen.len().saturating_sub(1);
         App {
             state,
             actions,
             selected: 0,
             log: vec!["Run started. Determinized with seed 42.".into()],
+            view_screen,
         }
     }
 
@@ -46,6 +50,7 @@ impl App {
 
         self.actions = self.state.available_actions();
         self.selected = 0;
+        self.view_screen = self.state.screen.len().saturating_sub(1);
     }
 }
 
@@ -125,6 +130,20 @@ fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
                         app.selected += 1;
                     }
                 }
+                KeyCode::Tab => {
+                    if !app.state.screen.is_empty() {
+                        app.view_screen = (app.view_screen + 1) % app.state.screen.len();
+                    }
+                }
+                KeyCode::BackTab => {
+                    if !app.state.screen.is_empty() {
+                        app.view_screen = if app.view_screen == 0 {
+                            app.state.screen.len() - 1
+                        } else {
+                            app.view_screen - 1
+                        };
+                    }
+                }
                 KeyCode::Enter => app.select_action(),
                 _ => {}
             }
@@ -142,10 +161,10 @@ fn draw(frame: &mut Frame, app: &App) {
         .split(outer[0]);
 
     // Left panel: game state
-    let status = build_status(&app.state);
+    let status = build_status(&app.state, app.view_screen);
     let status_block = Paragraph::new(status)
         .wrap(ratatui::widgets::Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Game State"));
+        .block(Block::default().borders(Borders::ALL).title("Game State (Tab to switch)"));
     frame.render_widget(status_block, top[0]);
 
     // Right panel: actions
@@ -183,7 +202,7 @@ fn draw(frame: &mut Frame, app: &App) {
     frame.render_widget(log_list, outer[1]);
 }
 
-fn build_status(state: &GameState) -> Vec<Line<'static>> {
+fn build_status(state: &GameState, view_screen: usize) -> Vec<Line<'static>> {
     let mut lines = vec![
         Line::from(vec![
             Span::raw("HP: "),
@@ -199,16 +218,49 @@ fn build_status(state: &GameState) -> Vec<Line<'static>> {
         Line::from(""),
     ];
 
-    let screen_name = format_screen_name(state.current_screen());
-    lines.push(Line::from(vec![
-        Span::raw("Screen: "),
-        Span::styled(screen_name, Style::default().fg(Color::Cyan)),
-        Span::raw(format!("  (stack: {})", state.screen.len())),
-    ]));
+    // Screen stack indicator
+    let stack_line: Vec<Span> = state.screen.iter().enumerate().map(|(i, s)| {
+        let name = format_screen_name(s);
+        if i == view_screen {
+            Span::styled(format!("[{}]", name), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        } else {
+            Span::styled(format!(" {} ", name), Style::default().fg(Color::DarkGray))
+        }
+    }).collect();
+    lines.push(Line::from(stack_line));
     lines.push(Line::from(""));
 
-    // Show combat-specific details when in combat
-    if let Some(combat) = find_combat(&state.screen) {
+    // Show details for the viewed screen
+    let viewed = state.screen.get(view_screen);
+    if let Some(Screen::Map { current_node, .. }) = viewed {
+        // Map visualization
+        if let Some(map) = &state.map {
+            let current = *current_node;
+            for row in (0..13).rev() {
+                let mut row_str = format!("{:>2} ", row);
+                for col in 0..7 {
+                    let idx = row * 7 + col;
+                    let node = &map.nodes[idx];
+                    let ch = match node.kind {
+                        MapNodeKind::Monster => 'M',
+                        MapNodeKind::Elite => 'E',
+                        MapNodeKind::Boss => 'B',
+                        MapNodeKind::Rest => 'R',
+                        MapNodeKind::Shop => '$',
+                        MapNodeKind::Event => '?',
+                        MapNodeKind::Treasure => 'T',
+                        MapNodeKind::Unknown => '.',
+                    };
+                    if idx == current {
+                        row_str.push_str(&format!("[{}]", ch));
+                    } else {
+                        row_str.push_str(&format!(" {} ", ch));
+                    }
+                }
+                lines.push(Line::from(row_str));
+            }
+        }
+    } else if let Some(combat) = find_combat(&state.screen) {
         if let Screen::Combat {
             monsters,
             hand,
