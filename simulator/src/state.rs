@@ -176,15 +176,23 @@ impl RewardPools {
     }
 
     /// Draw N cards from the reward deck for a card reward screen.
+    /// If a Golden Ticket is drawn, it stays in the deck (already cycled
+    /// to the back by Pool::draw) and a rare card is drawn instead.
     /// Returns empty vec if pools are unordered.
     pub fn draw_card_reward(&mut self, count: usize) -> Vec<Card> {
         (0..count)
             .filter_map(|_| {
                 let id = self.card_deck.draw()?;
+                let id = if id.contains("GoldenTicket") {
+                    // Golden Ticket: draw from rare deck instead
+                    self.rare_deck.draw().unwrap_or(id)
+                } else {
+                    id
+                };
                 Some(Card {
                     id: id.clone(),
                     name: id,
-                    cost: 0, // TODO: look up actual cost
+                    cost: 0,
                     card_type: "UNKNOWN".to_string(),
                     upgraded: false,
                 })
