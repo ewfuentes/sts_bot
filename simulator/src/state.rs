@@ -311,7 +311,9 @@ impl GameState {
                 queue_triggered(effect_queue, triggered);
             }
 
-            if result.died {
+            // Fire death triggers immediately only for monsters that go straight to Dead.
+            // DeadPendingSummon monsters have their death triggers deferred to execute_monster_turns.
+            if result.died && monsters[idx].state == MonsterState::Dead {
                 let triggered = power_db::collect_triggered_effects(
                     power_db::PowerTrigger::MonsterOnDeath,
                     &monsters[idx].powers,
@@ -1846,6 +1848,36 @@ impl GameState {
             Effect::StealGold(amount) => {
                 self.gold = self.gold.saturating_sub(*amount);
             }
+            Effect::SpawnMonster { id, hp } => {
+                let mut monster = Monster {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    hp: *hp,
+                    max_hp: *hp,
+                    block: 0,
+                    intent: "UNKNOWN".to_string(),
+                    damage: None,
+                    hits: 1,
+                    powers: vec![],
+                    state: MonsterState::Alive,
+                    move_index: 0,
+                    pattern: monster_db::MovePattern::default(),
+                };
+                if let Some(info) = monster_db::lookup(id) {
+                    monster.pattern = info.pattern;
+                    let actual_move = monster_db::resolve_move_index(monster.pattern, 0);
+                    update_monster_display(&mut monster, info, actual_move);
+                }
+                if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
+                    let spawn_idx = monsters.len() as u8;
+                    if let Some(info) = monster_db::lookup(id) {
+                        for effect in info.starting_effects {
+                            effect_queue.push_back((effect.clone(), ResolvedTarget::Monster(spawn_idx)));
+                        }
+                    }
+                    monsters.push(monster);
+                }
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
@@ -1901,6 +1933,21 @@ impl GameState {
     }
 
     fn execute_monster_turns(&mut self) {
+        // Process DeadPendingSummon monsters first (fire their death triggers)
+        if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
+            for (i, monster) in monsters.iter().enumerate() {
+                if monster.state == MonsterState::DeadPendingSummon {
+                    let triggered = power_db::collect_triggered_effects(
+                        power_db::PowerTrigger::MonsterOnDeath,
+                        &monster.powers,
+                        ResolvedTarget::Monster(i as u8),
+                    );
+                    queue_triggered(effect_queue, triggered);
+                }
+            }
+        }
+        self.drain_effect_queue();
+
         if let Some(Screen::Combat { monsters, player_powers, effect_queue, die_roll, turn, .. }) = self.find_combat_mut() {
             let roll = die_roll.expect("die_roll must be set before EndTurn");
             let current_turn = *turn;

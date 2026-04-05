@@ -218,6 +218,20 @@ static POWERS: &[PowerInfo] = &[
         }],
         modifiers: &[],
     },
+    PowerInfo {
+        id: "BGSplit",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::MonsterOnDeath,
+            effects: &[
+                Effect::SpawnMonster { id: "BGAcidSlime_L", hp: 12 },
+                Effect::SpawnMonster { id: "BGAcidSlime_M", hp: 5 },
+                Effect::SpawnMonster { id: "BGSpikeSlime_M", hp: 5 },
+                Effect::MonsterEscape,
+            ],
+            front_effects: &[],
+        }],
+        modifiers: &[],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static PowerInfo> {
