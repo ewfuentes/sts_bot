@@ -21,4 +21,4 @@ pub use map::{ActMap, MapNode, MapNodeKind};
 pub use rng::Rng;
 pub use screen::{HandCard, MapChoice, Screen, TargetReason};
 pub use state::{GameState, RewardPools};
-pub use types::{Card, Monster, Power, Potion, Relic};
+pub use types::{Card, Monster, MonsterState, Power, Potion, Relic};

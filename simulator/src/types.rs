@@ -38,6 +38,23 @@ fn default_hits() -> u8 {
     1
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MonsterState {
+    Alive,
+    /// At 0 HP but has pending death triggers (e.g. BGSplit summons).
+    /// Not targetable, doesn't act, but combat doesn't end.
+    DeadPendingSummon,
+    /// Fully removed from combat (dead or escaped).
+    Dead,
+}
+
+impl Default for MonsterState {
+    fn default() -> Self {
+        MonsterState::Alive
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Monster {
     pub id: String,
@@ -54,7 +71,7 @@ pub struct Monster {
     #[serde(default)]
     pub powers: Vec<Power>,
     #[serde(default)]
-    pub is_gone: bool,
+    pub state: MonsterState,
     /// Current move index into the monster_db move table.
     #[serde(default)]
     pub move_index: u8,

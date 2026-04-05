@@ -1,4 +1,4 @@
-use sts_simulator::{Action, Card, GameState, HandCard, Monster, Power, Screen, TargetReason};
+use sts_simulator::{Action, Card, GameState, HandCard, Monster, MonsterState, Power, Screen, TargetReason};
 
 fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
     Card {
@@ -27,7 +27,7 @@ fn make_monster(id: &str, name: &str, hp: u16, block: u16, powers: Vec<Power>) -
         damage: Some(1),
         hits: 1,
         powers,
-        is_gone: false,
+        state: MonsterState::Alive,
         move_index: 0,
         pattern: Default::default(),
     }
@@ -132,8 +132,8 @@ fn damage_kills_one_of_two_monsters_stays_in_combat() {
     state.apply(&play_action("BGBludgeon", 3, "ATTACK", 0, Some(0)));
 
     if let Screen::Combat { monsters, .. } = state.current_screen() {
-        assert!(monsters[0].is_gone);
-        assert!(!monsters[1].is_gone);
+        assert!(monsters[0].state == MonsterState::Dead);
+        assert!(monsters[1].state == MonsterState::Alive);
     } else {
         panic!("Expected Combat screen");
     }
@@ -179,7 +179,7 @@ fn cleave_damages_all_enemies() {
 fn damage_all_skips_dead_monsters() {
     let hand = vec![make_hand_card("BGCleave", 1, "ATTACK")];
     let mut dead = make_monster("BGRedLouse", "Dead Louse", 0, 0, vec![]);
-    dead.is_gone = true;
+    dead.state = MonsterState::Dead;
     let monsters = vec![
         make_monster("BGGreenLouse", "Louse A", 5, 0, vec![]),
         dead,
@@ -1549,7 +1549,7 @@ fn flame_barrier_blocks_and_damages_attacking_monsters() {
 fn flame_barrier_skips_dead_monsters() {
     let hand = vec![make_hand_card("BGFlame Barrier", 2, "SKILL")];
     let mut dead = make_monster("BGJawWorm", "Jaw Worm", 0, 0, vec![]);
-    dead.is_gone = true;
+    dead.state = MonsterState::Dead;
     let monsters = vec![
         dead,
         make_monster("BGGreenLouse", "Louse", 10, 0, vec![]),
@@ -2083,7 +2083,7 @@ fn feed_gains_strength_on_kill() {
 
     // Jaw Worm had 3 HP, Feed deals 3 → dead → gain strength
     if let Screen::Combat { monsters, player_powers, exhaust_pile, .. } = state.current_screen() {
-        assert!(monsters[0].is_gone);
+        assert!(monsters[0].state == MonsterState::Dead);
         let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
         assert_eq!(strength.amount, 1);
         assert_eq!(exhaust_pile.len(), 1); // Feed exhausts
@@ -2101,7 +2101,7 @@ fn feed_no_strength_if_target_survives() {
     state.apply(&play_action("BGFeed", 1, "ATTACK", 0, Some(0)));
 
     if let Screen::Combat { monsters, player_powers, .. } = state.current_screen() {
-        assert!(!monsters[0].is_gone);
+        assert!(monsters[0].state == MonsterState::Alive);
         assert_eq!(monsters[0].hp, 7); // 10 - 3
         assert!(player_powers.iter().find(|p| p.id == "Strength").is_none());
     } else {
@@ -3504,7 +3504,7 @@ fn jaw_worm_die_roll_selects_bellow() {
             "monsters": [{
                 "id": "BGJawWorm", "name": "Jaw Worm", "hp": 8, "max_hp": 8,
                 "block": 0, "intent": "DEFEND_BUFF", "damage": null, "hits": 1,
-                "powers": [], "is_gone": false, "move_index": 2
+                "powers": [], "state": "alive", "move_index": 2
             }],
             "hand": [],
             "draw_pile": [],
@@ -3546,7 +3546,7 @@ fn cultist_first_turn_incantation_then_dark_strike() {
                 "id": "BGCultist", "name": "Cultist", "hp": 9, "max_hp": 9,
                 "block": 0, "intent": "ATTACK_BUFF", "damage": 1, "hits": 1,
                 "powers": [],
-                "is_gone": false, "move_index": 0
+                "state": "alive", "move_index": 0
             }],
             "hand": [],
             "draw_pile": [],
@@ -3606,7 +3606,7 @@ fn monster_block_gained_then_decayed_next_turn() {
             "monsters": [{
                 "id": "BGJawWorm", "name": "Jaw Worm", "hp": 8, "max_hp": 8,
                 "block": 0, "intent": "DEFEND_BUFF", "damage": null, "hits": 1,
-                "powers": [], "is_gone": false, "move_index": 2
+                "powers": [], "state": "alive", "move_index": 2
             }],
             "hand": [],
             "draw_pile": [],

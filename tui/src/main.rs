@@ -309,7 +309,7 @@ fn build_status(state: &GameState) -> Vec<Line<'static>> {
 
             // Monsters
             for m in monsters {
-                if m.is_gone {
+                if m.state != sts_simulator::MonsterState::Alive {
                     continue;
                 }
                 let mut parts: Vec<Span> = vec![

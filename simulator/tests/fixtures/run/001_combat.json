@@ -147,7 +147,7 @@
             "amount": 2
           }
         ],
-        "is_gone": false
+        "state": "alive"
       },
       {
         "id": "BGGreenLouse",
@@ -164,7 +164,7 @@
             "amount": 2
           }
         ],
-        "is_gone": false
+        "state": "alive"
       }
     ],
     "player": {

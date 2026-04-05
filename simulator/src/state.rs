@@ -10,7 +10,7 @@ use crate::map::{ActMap, MapNodeKind};
 use crate::pool::Pool;
 use crate::reward_deck::{self, Character, RewardDeck};
 use crate::screen::{EventOption, HandCard, Screen, ShopCard, ShopPotion, ShopRelic, TargetReason};
-use crate::types::{Card, Monster, Potion, Relic};
+use crate::types::{Card, Monster, MonsterState, Potion, Relic};
 
 fn deserialize_screen_stack<'de, D>(deserializer: D) -> Result<Vec<Screen>, D::Error>
 where
@@ -885,7 +885,7 @@ impl GameState {
                                         damage: None,
                                         hits: 1,
                                         powers: vec![],
-                                        is_gone: false,
+                                        state: MonsterState::Alive,
                                         move_index: em.move_index,
                                         pattern,
                                     });
@@ -1230,7 +1230,7 @@ impl GameState {
         if self.hp == 0 {
             self.set_screen(Screen::GameOver { victory: false });
         } else if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
-            if !monsters.is_empty() && monsters.iter().all(|m| m.is_gone) {
+            if !monsters.is_empty() && monsters.iter().all(|m| m.state == MonsterState::Dead) {
                 self.finish_combat();
             }
         }
@@ -1260,7 +1260,7 @@ impl GameState {
                     let idx = idx as usize;
                     let mut result = DamageResult { took_damage: false, died: false };
                     if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
-                        if idx < monsters.len() && !monsters[idx].is_gone {
+                        if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                             let dmg = calculate_damage(*amount, player_powers, &monsters[idx].powers);
                             result = apply_damage_to_monster(&mut monsters[idx], dmg);
                         }
@@ -1274,7 +1274,7 @@ impl GameState {
                         let idx = idx as usize;
                         let mut result = DamageResult { took_damage: false, died: false };
                         if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
-                            if idx < monsters.len() && !monsters[idx].is_gone {
+                            if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                                 result = apply_damage_to_monster(&mut monsters[idx], *amount as u16);
                             }
                         }
@@ -1299,7 +1299,7 @@ impl GameState {
                 let mut triggers: Vec<(u8, DamageResult)> = Vec::new();
                 if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
                     for (i, monster) in monsters.iter_mut().enumerate() {
-                        if !monster.is_gone {
+                        if monster.state == MonsterState::Alive {
                             let dmg = calculate_damage(*amount, player_powers, &monster.powers);
                             let result = apply_damage_to_monster(monster, dmg);
                             triggers.push((i as u8, result));
@@ -1332,7 +1332,7 @@ impl GameState {
                                 *base + *multiplier * str_amount
                             }
                         };
-                        if idx < monsters.len() && !monsters[idx].is_gone {
+                        if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                             let dmg = calculate_damage(base_amount, player_powers, &monsters[idx].powers);
                             result = apply_damage_to_monster(&mut monsters[idx], dmg);
                         }
@@ -1344,7 +1344,7 @@ impl GameState {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
                     if let Some(Screen::Combat { monsters, player_powers, .. }) = self.find_combat_mut() {
-                        if idx < monsters.len() && monsters[idx].is_gone {
+                        if idx < monsters.len() && monsters[idx].state != MonsterState::Alive {
                             apply_power(player_powers, "Strength", *amount as i32);
                         }
                     }
@@ -1369,7 +1369,7 @@ impl GameState {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
                     if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
-                        if idx < monsters.len() && !monsters[idx].is_gone {
+                        if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                             monsters[idx].block = monsters[idx].block.saturating_add(*amount as u16);
                         }
                     }
@@ -1419,7 +1419,7 @@ impl GameState {
                             // Player card targeting an enemy monster
                             if let ResolvedTarget::Monster(idx) = target {
                                 let idx = idx as usize;
-                                if idx < monsters.len() && !monsters[idx].is_gone {
+                                if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                                     apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
                                 }
                             }
@@ -1429,7 +1429,7 @@ impl GameState {
                             match target {
                                 ResolvedTarget::Monster(idx) => {
                                     let idx = idx as usize;
-                                    if idx < monsters.len() && !monsters[idx].is_gone {
+                                    if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                                         apply_power(&mut monsters[idx].powers, power_id, *amount as i32);
                                     }
                                 }
@@ -1440,7 +1440,7 @@ impl GameState {
                         }
                         EffectTarget::AllEnemies => {
                             for monster in monsters.iter_mut() {
-                                if !monster.is_gone {
+                                if monster.state == MonsterState::Alive {
                                     apply_power(&mut monster.powers, power_id, *amount as i32);
                                 }
                             }
@@ -1558,7 +1558,7 @@ impl GameState {
             Effect::FlameBarrier(thorns_damage) => {
                 if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
                     for (i, monster) in monsters.iter().enumerate() {
-                        if monster.is_gone {
+                        if monster.state != MonsterState::Alive {
                             continue;
                         }
                         // Only affect monsters that intend to attack (damage >= 0)
@@ -1740,7 +1740,7 @@ impl GameState {
                 let mut triggers: Vec<(u8, DamageResult)> = Vec::new();
                 if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                     for (i, monster) in monsters.iter_mut().enumerate() {
-                        if !monster.is_gone {
+                        if monster.state == MonsterState::Alive {
                             let result = apply_damage_to_monster(monster, *amount as u16);
                             // Not from an Attack card, so was_attacked stays false
                             triggers.push((i as u8, result));
@@ -1820,7 +1820,7 @@ impl GameState {
                 if let ResolvedTarget::Monster(idx) = target {
                     let idx = idx as usize;
                     if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
-                        if idx < monsters.len() && !monsters[idx].is_gone {
+                        if idx < monsters.len() && monsters[idx].state == MonsterState::Alive {
                             monsters[idx].block = 0;
                         }
                     }
@@ -1831,7 +1831,7 @@ impl GameState {
                     let idx = idx as usize;
                     if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
                         if idx < monsters.len() {
-                            monsters[idx].is_gone = true;
+                            monsters[idx].state = MonsterState::Dead;
                         }
                     }
                 }
@@ -1846,7 +1846,7 @@ impl GameState {
 
         // Check for combat end after each effect
         if let Some(Screen::Combat { monsters, effect_queue, .. }) = self.find_combat_mut() {
-            if !monsters.is_empty() && monsters.iter().all(|m| m.is_gone) {
+            if !monsters.is_empty() && monsters.iter().all(|m| m.state == MonsterState::Dead) {
                 effect_queue.clear();
                 return EffectResult::CombatOver;
             }
@@ -1899,7 +1899,7 @@ impl GameState {
             let current_turn = *turn;
 
             for (i, monster) in monsters.iter_mut().enumerate() {
-                if monster.is_gone {
+                if monster.state != MonsterState::Alive {
                     continue;
                 }
 
@@ -2165,7 +2165,7 @@ impl GameState {
                     .find(|s| matches!(s, Screen::Combat { .. }))
                 {
                     monsters.iter().enumerate()
-                        .filter(|(_, m)| !m.is_gone)
+                        .filter(|(_, m)| m.state == MonsterState::Alive)
                         .map(|(i, m)| Action::PickTarget {
                             reason: reason.clone(),
                             target_index: i as u8,
@@ -2372,7 +2372,7 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8, draw_pile
     let live_monsters: Vec<(u8, &Monster)> = monsters
         .iter()
         .enumerate()
-        .filter(|(_, m)| !m.is_gone)
+        .filter(|(_, m)| m.state == MonsterState::Alive)
         .map(|(i, m)| (i as u8, m))
         .collect();
 
@@ -2502,9 +2502,9 @@ fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> 
         monster.hp = monster.hp.saturating_sub(remaining);
     }
     let took_damage = monster.hp < hp_before;
-    let died = monster.hp == 0 && !monster.is_gone;
+    let died = monster.hp == 0 && monster.state == MonsterState::Alive;
     if died {
-        monster.is_gone = true;
+        monster.state = MonsterState::Dead;
     }
     DamageResult { took_damage, died }
 }
