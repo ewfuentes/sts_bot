@@ -40,6 +40,7 @@ pub enum Effect {
     },
     Draw(u8),
     GainEnergy(u8),
+    Heal(u16),
     LoseHP(u16),
     AddCardToPile {
         card_id: &'static str,

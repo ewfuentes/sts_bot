@@ -1,4 +1,4 @@
-use crate::effects::{Effect, EffectTarget};
+use crate::effects::{Effect, EffectTarget, HandSelectAction, Pile};
 
 pub struct PotionInfo {
     pub id: &'static str,
@@ -45,6 +45,28 @@ static POTIONS: &[PotionInfo] = &[
     PotionInfo {
         id: "BoardGame:BGCunningPotion",
         effects: &[Effect::ShivTargetSelect, Effect::ShivTargetSelect, Effect::ShivTargetSelect],
+    },
+    PotionInfo {
+        id: "BoardGame:BGBloodPotion",
+        effects: &[Effect::Heal(2)],
+    },
+    PotionInfo {
+        id: "BoardGame:BGElixirPotion",
+        effects: &[Effect::SelectFromHand { min: 3, max: 3, action: HandSelectAction::Exhaust }],
+    },
+    PotionInfo {
+        id: "BoardGame:BGAncientPotion",
+        effects: &[
+            Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGWeakened", amount: i16::MIN },
+            Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGVulnerable", amount: i16::MIN },
+        ],
+    },
+    PotionInfo {
+        id: "BoardGame:BGSneckoOil",
+        effects: &[
+            Effect::Draw(5),
+            Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 },
+        ],
     },
 ];
 

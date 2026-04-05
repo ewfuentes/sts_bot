@@ -1561,6 +1561,9 @@ impl GameState {
                     *player_energy += amount;
                 }
             }
+            Effect::Heal(amount) => {
+                self.hp = (self.hp + amount).min(self.max_hp);
+            }
             Effect::LoseHP(amount) => {
                 self.hp = self.hp.saturating_sub(*amount);
             }

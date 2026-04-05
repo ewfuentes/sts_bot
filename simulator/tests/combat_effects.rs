@@ -3996,6 +3996,73 @@ fn unknown_potion_not_usable() {
 }
 
 #[test]
+fn blood_potion_heals() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGBloodPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+    state.hp = 5; // damage the player first
+
+    state.apply(&use_potion(0, "BoardGame:BGBloodPotion"));
+
+    assert_eq!(state.hp, 7); // 5 + 2
+}
+
+#[test]
+fn blood_potion_capped_at_max_hp() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGBloodPotion")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+    state.hp = 9; // only 1 below max
+
+    state.apply(&use_potion(0, "BoardGame:BGBloodPotion"));
+
+    assert_eq!(state.hp, 10); // capped at max_hp, not 11
+}
+
+#[test]
+fn ancient_potion_removes_debuffs() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGAncientPotion")), None, None];
+    let player_powers = vec![
+        Power { id: "BGWeakened".into(), amount: 3 },
+        Power { id: "BGVulnerable".into(), amount: 2 },
+        Power { id: "Strength".into(), amount: 1 },
+    ];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, player_powers, potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGAncientPotion"));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(player_powers.iter().all(|p| p.id != "BGWeakened"));
+        assert!(player_powers.iter().all(|p| p.id != "BGVulnerable"));
+        // Strength should be untouched
+        let str_power = player_powers.iter().find(|p| p.id == "Strength");
+        assert!(str_power.is_some());
+        assert_eq!(str_power.unwrap().amount, 1);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn elixir_potion_opens_hand_select() {
+    let hand = vec![
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+        make_hand_card("BGBash", 2, "ATTACK"),
+        make_hand_card("BGStrike_R", 1, "ATTACK"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGElixirPotion")), None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGElixirPotion"));
+
+    // Should open a hand select screen for exhausting 3 cards
+    assert!(matches!(state.current_screen(), Screen::HandSelect { .. }));
+}
+
+#[test]
 fn fire_potion_deals_fixed_damage_to_target() {
     let monsters = vec![
         make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]),
