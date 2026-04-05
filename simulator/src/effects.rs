@@ -123,6 +123,8 @@ pub enum Effect {
     MonsterEscape,
     /// Monster steals gold from the player.
     StealGold(u16),
+    /// Spawn a new monster into the current combat.
+    SpawnMonster { id: &'static str, hp: u16 },
     Custom(&'static str),
 }
 

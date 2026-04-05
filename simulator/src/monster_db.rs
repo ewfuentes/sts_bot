@@ -441,6 +441,61 @@ static MONSTERS: &[MonsterInfo] = &[
         pattern: MovePattern::Sequence(&[0, 1, 2, 3, 4, 5]),
         starting_effects: &[],
     },
+    MonsterInfo {
+        id: "BGSlimeBoss",
+        moves: &[
+            // Move 0: Sticky — 3 Slimed to discard
+            MonsterMove {
+                name: "Sticky",
+                effects: &[
+                    Effect::AddCardToPile { card_id: "BGSlimed", pile: Pile::Discard, count: 3 },
+                ],
+            },
+            // Move 1: Tackle — 3 dmg + 2 Slimed
+            MonsterMove {
+                name: "Tackle",
+                effects: &[
+                    Effect::Damage(3),
+                    Effect::AddCardToPile { card_id: "BGSlimed", pile: Pile::Discard, count: 2 },
+                ],
+            },
+            // Move 2: Slam — 6 dmg
+            MonsterMove {
+                name: "Slam",
+                effects: &[Effect::Damage(6)],
+            },
+        ],
+        pattern: MovePattern::Sequence(&[0, 1, 2]),
+        starting_effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGSplit", amount: 1 }],
+    },
+    MonsterInfo {
+        id: "BGAcidSlime_L",
+        moves: &[
+            // Move 0: Splash — 1 dmg
+            MonsterMove {
+                name: "Splash",
+                effects: &[Effect::Damage(1)],
+            },
+            // Move 1: Wound — 4 dmg + 1 Dazed
+            MonsterMove {
+                name: "Wound",
+                effects: &[
+                    Effect::Damage(4),
+                    Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 },
+                ],
+            },
+            // Move 2: Slime Tackle — 3 dmg + 2 Slimed
+            MonsterMove {
+                name: "Slime Tackle",
+                effects: &[
+                    Effect::Damage(3),
+                    Effect::AddCardToPile { card_id: "BGSlimed", pile: Pile::Discard, count: 2 },
+                ],
+            },
+        ],
+        pattern: MovePattern::Sequence(&[0, 1, 2]),
+        starting_effects: &[],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static MonsterInfo> {
