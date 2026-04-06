@@ -13,6 +13,7 @@ fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
 fn make_hand_card(id: &str, cost: i8, card_type: &str) -> HandCard {
     HandCard {
         card: make_card(id, cost, card_type),
+        cost_override: None,
     }
 }
 
@@ -686,6 +687,7 @@ fn rampage_upgraded_exhausts_then_deals_damage() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![
         upgraded_rampage.clone(),
@@ -1119,6 +1121,7 @@ fn sever_soul_upgraded_exhausts_up_to_two() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![
         upgraded.clone(),
@@ -1174,6 +1177,7 @@ fn battle_trance_upgraded_draws_four() {
             card_type: "SKILL".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![upgraded.clone()];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
@@ -1312,6 +1316,7 @@ fn sentinel_upgraded_gains_more_energy_on_exhaust() {
             card_type: "SKILL".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![
         make_hand_card("BGTrue Grit", 1, "SKILL"),
@@ -2066,6 +2071,7 @@ fn spot_weakness_upgraded_succeeds_on_four() {
             card_type: "SKILL".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![upgraded.clone()];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
@@ -2158,6 +2164,7 @@ fn feed_upgraded_gains_two_strength_on_kill() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![upgraded.clone()];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 2, 0, vec![])];
@@ -2245,6 +2252,7 @@ fn whirlwind_upgraded_gets_bonus_hit() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![upgraded.clone()];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 20, 0, vec![])];
@@ -2295,6 +2303,7 @@ fn iron_wave_upgraded_presents_choice() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![upgraded.clone()];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
@@ -2327,6 +2336,7 @@ fn iron_wave_upgraded_spear_choice() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![upgraded.clone()];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
@@ -2358,6 +2368,7 @@ fn iron_wave_upgraded_shield_choice() {
             card_type: "ATTACK".to_string(),
             upgraded: true,
         },
+        cost_override: None,
     };
     let hand = vec![upgraded.clone()];
     let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
@@ -3716,7 +3727,7 @@ fn curl_up_triggers_only_once_on_multi_hit() {
     // CurlUp should grant 2 block exactly once, not twice.
     let monsters = vec![make_monster("BGRedLouse", "Red Louse", 10, 0, vec![make_power("BGCurlUp", 2)])];
     let hand = vec![
-        HandCard { card: make_card("BGTwin Strike", 1, "ATTACK") },
+        HandCard { card: make_card("BGTwin Strike", 1, "ATTACK"), cost_override: None },
     ];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![]);
 
@@ -3749,7 +3760,7 @@ fn angry_triggers_on_attack_not_on_fixed_damage() {
     // but NOT from non-attack damage (e.g. BGCombust's DamageFixedAll).
     let monsters = vec![make_monster("BGGremlinAngry", "Angry Gremlin", 10, 0, vec![make_power("Angry", 1)])];
     let hand = vec![
-        HandCard { card: make_card("BGStrike_R", 1, "ATTACK") },
+        HandCard { card: make_card("BGStrike_R", 1, "ATTACK"), cost_override: None },
     ];
     let player_powers = vec![make_power("BGCombust", 1)];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0, player_powers);
@@ -3786,7 +3797,7 @@ fn angry_triggers_on_attack_not_on_fixed_damage() {
 fn guardian_mode_shift_on_block_break() {
     let guardian = make_monster("BGTheGuardian", "The Guardian", 40, 5, vec![]);
     let monsters = vec![guardian];
-    let hand = vec![HandCard { card: make_card("BGStrike_R", 1, "ATTACK") }];
+    let hand = vec![HandCard { card: make_card("BGStrike_R", 1, "ATTACK"), cost_override: None }];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![make_power("Strength", 5)]);
 
     if let Screen::Combat { monsters, .. } = state.current_screen_mut() {
@@ -3823,7 +3834,7 @@ fn guardian_mode_shift_on_block_break() {
 #[test]
 fn slime_boss_splits_on_death() {
     let monsters = vec![make_monster("BGSlimeBoss", "Slime Boss", 1, 0, vec![make_power("BGSplit", 1)])];
-    let hand = vec![HandCard { card: make_card("BGStrike_R", 1, "ATTACK") }];
+    let hand = vec![HandCard { card: make_card("BGStrike_R", 1, "ATTACK"), cost_override: None }];
     let mut state = combat_state_with_monsters(hand, monsters, 3, 0, vec![]);
 
     state.apply(&Action::PlayCard {
@@ -4332,6 +4343,101 @@ fn skill_potion_doubles_next_skill() {
         assert_eq!(*player_block, 2);
         // Burst should be consumed
         assert!(player_powers.iter().all(|p| p.id != "BGBurst"));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn liquid_memories_moves_card_to_hand_at_zero_cost() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGLiquidMemories")), None, None];
+    // Build state with a card in the discard pile
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": potions,
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [{"id": "BGBash", "name": "BGBash", "cost": 2, "type": "ATTACK", "upgraded": false}],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 1,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&use_potion(0, "BoardGame:BGLiquidMemories"));
+
+    // Only one card in discard, should auto-resolve to hand
+    if let Screen::Combat { hand, discard_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 1);
+        assert_eq!(hand[0].card.id, "BGBash");
+        assert_eq!(hand[0].cost_override, Some(0));
+        assert!(discard_pile.is_empty());
+    } else {
+        panic!("Expected Combat screen");
+    }
+
+    // Card should be playable with 1 energy (normally costs 2)
+    let actions = state.available_actions();
+    let can_play = actions.iter().any(|a| matches!(a, Action::PlayCard { card, .. } if card.id == "BGBash"));
+    assert!(can_play, "BGBash should be playable at cost 0 with 1 energy");
+}
+
+#[test]
+fn liquid_memories_multiple_cards_opens_select() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGLiquidMemories")), None, None];
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": potions,
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [
+                {"id": "BGBash", "name": "BGBash", "cost": 2, "type": "ATTACK", "upgraded": false},
+                {"id": "BGDefend_R", "name": "BGDefend_R", "cost": 1, "type": "SKILL", "upgraded": false}
+            ],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 1,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&use_potion(0, "BoardGame:BGLiquidMemories"));
+
+    // Multiple cards: should open discard select
+    assert!(matches!(state.current_screen(), Screen::DiscardSelect { .. }));
+
+    // Pick BGBash
+    state.apply(&Action::PickDiscard {
+        card: make_card("BGBash", 2, "ATTACK"),
+        choice_index: 0,
+    });
+
+    if let Screen::Combat { hand, discard_pile, .. } = state.current_screen() {
+        assert_eq!(hand.len(), 1);
+        assert_eq!(hand[0].card.id, "BGBash");
+        assert_eq!(hand[0].cost_override, Some(0));
+        assert_eq!(discard_pile.len(), 1); // BGDefend_R remains
     } else {
         panic!("Expected Combat screen");
     }

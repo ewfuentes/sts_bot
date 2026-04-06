@@ -72,6 +72,10 @@ static POTIONS: &[PotionInfo] = &[
             Effect::AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 },
         ],
     },
+    PotionInfo {
+        id: "BoardGame:BGLiquidMemories",
+        effects: &[Effect::SelectFromDiscardToHand { cost_override: Some(0) }],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static PotionInfo> {
