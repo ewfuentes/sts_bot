@@ -4466,3 +4466,40 @@ fn entropic_brew_fills_empty_potion_slots() {
     let filled = state.potions.iter().filter(|p| p.is_some()).count();
     assert_eq!(filled, 6, "All potion slots should be filled");
 }
+
+#[test]
+fn fairy_potion_revives_on_lethal() {
+    // Player at 1 HP, monster deals enough to kill
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let mut monster = make_monster("BGCultist", "Cultist", 9, 0, vec![]);
+    monster.damage = Some(5);
+    let monsters = vec![monster];
+    let potions = vec![Some(make_potion("BoardGame:BGFairyPotion")), None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+    state.hp = 1;
+
+    // End turn to trigger monster attack (5 damage to 1 HP player)
+    state.apply(&Action::EndTurn);
+
+    // Should not be game over — fairy potion should revive to 2 HP
+    assert!(matches!(state.current_screen(), Screen::Combat { .. }),
+        "Expected Combat screen, got {:?}", state.current_screen());
+    assert_eq!(state.hp, 2);
+    // Potion should be consumed
+    assert!(state.potions[0].is_none());
+}
+
+#[test]
+fn fairy_potion_not_present_means_death() {
+    let hand = vec![make_hand_card("BGStrike_R", 1, "ATTACK")];
+    let mut monster = make_monster("BGCultist", "Cultist", 9, 0, vec![]);
+    monster.damage = Some(5);
+    let monsters = vec![monster];
+    let potions = vec![None, None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+    state.hp = 1;
+
+    state.apply(&Action::EndTurn);
+
+    assert!(matches!(state.current_screen(), Screen::GameOver { victory: false }));
+}
