@@ -444,6 +444,7 @@ fn format_screen_name(screen: &Screen) -> String {
         }
         Screen::ChoiceSelect { choices, .. } => format!("Choose ({} options)", choices.len()),
         Screen::XCostSelect { max_energy, .. } => format!("Choose X (max {})", max_energy),
+        Screen::AutoPlaySelect { cards } => format!("Auto-play ({} cards remaining)", cards.len()),
         Screen::CustomScreen { screen_enum, .. } => format!("Custom: {}", screen_enum),
         Screen::GameOver { victory: true } => "Victory!".into(),
         Screen::GameOver { victory: false } => "Defeated".into(),
@@ -563,6 +564,7 @@ fn format_action(action: &Action, state: &GameState) -> String {
             };
             format!("Target {} ({})", target_name, reason_str)
         }
+        Action::PickAutoPlay { card, .. } => format!("Auto-play {}", card.name),
         Action::PickCustomScreenOption { label, .. } => label.clone(),
         Action::PlayCard {
             card, target_name, ..

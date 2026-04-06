@@ -144,6 +144,12 @@ pub enum Effect {
     SetDieRoll(u8),
     /// Fill all empty potion slots from the potion deck (Entropic Brew).
     FillPotionSlots,
+    /// Draw 3 cards, pull them from hand into an AutoPlaySelect screen,
+    /// and let the player pick the order to play them for free.
+    DistilledChaos,
+    /// Pull the last 3 drawn cards from hand into an AutoPlaySelect screen.
+    /// Queued after DrawOneCard effects by DistilledChaos.
+    CollectForAutoPlay,
     Custom(&'static str),
 }
 

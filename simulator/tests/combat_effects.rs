@@ -4108,14 +4108,8 @@ fn weak_potion_applies_weakness_to_target() {
     let potions = vec![Some(make_potion("BoardGame:BGWeak Potion")), None, None];
     let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
 
+    // Single monster: target auto-resolves
     state.apply(&use_potion(0, "BoardGame:BGWeak Potion"));
-    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
-
-    state.apply(&Action::PickTarget {
-        reason: TargetReason::Pending,
-        target_index: 0,
-        target_name: "Jaw Worm".into(),
-    });
 
     if let Screen::Combat { monsters, .. } = state.current_screen() {
         let weak = monsters[0].powers.iter().find(|p| p.id == "BGWeakened");
@@ -4132,14 +4126,8 @@ fn fear_potion_applies_vulnerable_to_target() {
     let potions = vec![Some(make_potion("BoardGame:BGFearPotion")), None, None];
     let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
 
+    // Single monster: target auto-resolves
     state.apply(&use_potion(0, "BoardGame:BGFearPotion"));
-    assert!(matches!(state.current_screen(), Screen::TargetSelect { .. }));
-
-    state.apply(&Action::PickTarget {
-        reason: TargetReason::Pending,
-        target_index: 0,
-        target_name: "Jaw Worm".into(),
-    });
 
     if let Screen::Combat { monsters, .. } = state.current_screen() {
         let vuln = monsters[0].powers.iter().find(|p| p.id == "BGVulnerable");
@@ -4574,4 +4562,123 @@ fn intangible_at_zero_still_blocks_subsequent_hits() {
     // First monster: 3 damage capped to 1, intangible goes to 0
     // Second monster: 3 damage capped to 0, no HP lost
     assert_eq!(state.hp, 9); // only 1 total damage taken
+}
+
+#[test]
+fn distilled_chaos_draws_and_offers_auto_play() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGDistilledChaos")), None, None];
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": potions,
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [
+                {"id": "BGStrike_R", "name": "BGStrike_R", "cost": 1, "type": "ATTACK", "upgraded": false},
+                {"id": "BGDefend_R", "name": "BGDefend_R", "cost": 1, "type": "SKILL", "upgraded": false},
+                {"id": "BGBash", "name": "BGBash", "cost": 2, "type": "ATTACK", "upgraded": false}
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 0,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&use_potion(0, "BoardGame:BGDistilledChaos"));
+
+    // Should be on AutoPlaySelect with 3 cards
+    if let Screen::AutoPlaySelect { cards } = state.current_screen() {
+        assert_eq!(cards.len(), 3);
+    } else {
+        panic!("Expected AutoPlaySelect screen, got {:?}", state.current_screen());
+    }
+}
+
+#[test]
+fn distilled_chaos_plays_cards_sequentially() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 10, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGDistilledChaos")), None, None];
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [{"id": "BoardGame:BurningBlood", "name": "Burning Blood"}],
+        "potions": potions,
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [
+                {"id": "BGStrike_R", "name": "BGStrike_R", "cost": 1, "type": "ATTACK", "upgraded": false},
+                {"id": "BGDefend_R", "name": "BGDefend_R", "cost": 1, "type": "SKILL", "upgraded": false},
+                {"id": "BGStrike_R", "name": "BGStrike_R", "cost": 1, "type": "ATTACK", "upgraded": false}
+            ],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 0,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&use_potion(0, "BoardGame:BGDistilledChaos"));
+
+    // Pick Defend (untargeted) first
+    let defend_idx = if let Screen::AutoPlaySelect { cards } = state.current_screen() {
+        cards.iter().position(|c| c.id == "BGDefend_R").unwrap()
+    } else {
+        panic!("Expected AutoPlaySelect");
+    };
+    state.apply(&Action::PickAutoPlay {
+        card: make_card("BGDefend_R", 1, "SKILL"),
+        choice_index: defend_idx as u8,
+    });
+
+    // Should have gained block and still be on AutoPlaySelect with 2 cards
+    if let Screen::AutoPlaySelect { cards } = state.current_screen() {
+        assert_eq!(cards.len(), 2);
+    } else {
+        // Might be on combat if auto-play screen was popped — check block
+        panic!("Expected AutoPlaySelect with 2 cards, got {:?}", state.current_screen());
+    }
+
+    // Pick a Strike — single monster, target auto-resolves
+    state.apply(&Action::PickAutoPlay {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        choice_index: 0,
+    });
+
+    // Should still be on AutoPlaySelect with 1 card
+    if let Screen::AutoPlaySelect { cards } = state.current_screen() {
+        assert_eq!(cards.len(), 1);
+    } else {
+        panic!("Expected AutoPlaySelect with 1 card, got {:?}", state.current_screen());
+    }
+
+    // Pick the last Strike — auto-resolves, screen pops
+    state.apply(&Action::PickAutoPlay {
+        card: make_card("BGStrike_R", 1, "ATTACK"),
+        choice_index: 0,
+    });
+
+    // Should be back in combat — monster took 2 strikes (1 dmg each)
+    if let Screen::Combat { monsters, player_block, .. } = state.current_screen() {
+        assert_eq!(monsters[0].hp, 8); // 10 - 1 - 1
+        assert_eq!(*player_block, 1); // from Defend
+    } else {
+        panic!("Expected Combat screen, got {:?}", state.current_screen());
+    }
 }
