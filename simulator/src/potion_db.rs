@@ -76,6 +76,10 @@ static POTIONS: &[PotionInfo] = &[
         id: "BoardGame:BGLiquidMemories",
         effects: &[Effect::SelectFromDiscardToHand { cost_override: Some(0) }],
     },
+    PotionInfo {
+        id: "BoardGame:BGEntropicBrew",
+        effects: &[Effect::FillPotionSlots],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static PotionInfo> {

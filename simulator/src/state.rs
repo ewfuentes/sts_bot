@@ -2060,6 +2060,17 @@ impl GameState {
                     self.potions[slot] = None;
                 }
             }
+            Effect::FillPotionSlots => {
+                for slot in self.potions.iter_mut() {
+                    if slot.is_none() {
+                        if let Some(pools) = &mut self.reward_pools {
+                            if let Some(id) = pools.potion_deck.draw() {
+                                *slot = Some(Potion { id: id.clone(), name: id });
+                            }
+                        }
+                    }
+                }
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }

@@ -4442,3 +4442,27 @@ fn liquid_memories_multiple_cards_opens_select() {
         panic!("Expected Combat screen");
     }
 }
+
+#[test]
+fn entropic_brew_fills_empty_potion_slots() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![
+        Some(make_potion("BoardGame:BGEntropicBrew")),
+        Some(make_potion("BoardGame:BGBlock Potion")),
+        None,
+        None,
+        None,
+        None,
+    ];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGEntropicBrew"));
+
+    // Slot 0: consumed then refilled from pool
+    assert_ne!(state.potions[0].as_ref().unwrap().id, "BoardGame:BGEntropicBrew");
+    // Slot 1: untouched (was Block Potion)
+    assert_eq!(state.potions[1].as_ref().unwrap().id, "BoardGame:BGBlock Potion");
+    // All slots should be filled (brew consumed + 5 empty slots filled from pool)
+    let filled = state.potions.iter().filter(|p| p.is_some()).count();
+    assert_eq!(filled, 6, "All potion slots should be filled");
+}

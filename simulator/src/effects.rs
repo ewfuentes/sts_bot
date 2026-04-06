@@ -142,6 +142,8 @@ pub enum Effect {
     ConfirmDieRoll,
     /// Set the combat die roll to a specific value (chosen via ConfirmDieRoll).
     SetDieRoll(u8),
+    /// Fill all empty potion slots from the potion deck (Entropic Brew).
+    FillPotionSlots,
     Custom(&'static str),
 }
 
