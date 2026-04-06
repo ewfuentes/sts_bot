@@ -1007,11 +1007,12 @@ impl GameState {
                         return;
                     }
                     let hc = hand.remove(hand_idx);
+                    let cost_override = hc.cost_override;
                     let card = hc.card;
                     let info = card_db::lookup(&card.id).expect("card not found in card_db");
 
                     // Deduct energy (with cost modification from powers like Corruption)
-                    let base_cost = info.effective_cost(card.upgraded);
+                    let base_cost = cost_override.unwrap_or_else(|| info.effective_cost(card.upgraded));
                     let cost = power_db::apply_cost_modification(base_cost, info.card_type, player_powers);
                     if cost >= 0 {
                         *player_energy = player_energy.saturating_sub(cost as u8);
@@ -1197,15 +1198,23 @@ impl GameState {
             }
             Action::PickDiscard { choice_index, .. } => {
                 let idx = *choice_index as usize;
-                if let Screen::DiscardSelect { cards } = self.current_screen() {
+                if let Screen::DiscardSelect { cards, destination } = self.current_screen() {
                     if idx < cards.len() {
                         let (discard_idx, _) = cards[idx];
+                        let destination = *destination;
                         self.pop_screen();
-                        if let Some(Screen::Combat { discard_pile, draw_pile, .. }) = self.find_combat_mut() {
+                        if let Some(Screen::Combat { discard_pile, draw_pile, hand, .. }) = self.find_combat_mut() {
                             let discard_idx = discard_idx as usize;
                             if discard_idx < discard_pile.len() {
                                 let card = discard_pile.remove(discard_idx);
-                                draw_pile.push(card);
+                                match destination {
+                                    crate::screen::DiscardSelectDestination::DrawPile => {
+                                        draw_pile.push(card);
+                                    }
+                                    crate::screen::DiscardSelectDestination::Hand { cost_override } => {
+                                        hand.push(HandCard { card, cost_override });
+                                    }
+                                }
                             }
                         }
                         self.drain_effect_queue();
@@ -1222,7 +1231,7 @@ impl GameState {
                             let exhaust_idx = exhaust_idx as usize;
                             if exhaust_idx < exhaust_pile.len() {
                                 let card = exhaust_pile.remove(exhaust_idx);
-                                hand.push(HandCard { card });
+                                hand.push(HandCard { card, cost_override: None });
                             }
                         }
                         self.drain_effect_queue();
@@ -1634,7 +1643,26 @@ impl GameState {
                     }
                     let cards: Vec<(u8, Card)> = discard_pile.iter().enumerate()
                         .map(|(i, c)| (i as u8, c.clone())).collect();
-                    self.push_screen(Screen::DiscardSelect { cards });
+                    self.push_screen(Screen::DiscardSelect { cards, destination: crate::screen::DiscardSelectDestination::DrawPile });
+                    return EffectResult::Paused;
+                }
+            }
+            Effect::SelectFromDiscardToHand { cost_override } => {
+                if let Some(Screen::Combat { discard_pile, hand, .. }) = self.find_combat_mut() {
+                    if discard_pile.is_empty() {
+                        return EffectResult::Continue;
+                    }
+                    if discard_pile.len() == 1 {
+                        let card = discard_pile.pop().unwrap();
+                        hand.push(HandCard { card, cost_override: *cost_override });
+                        return EffectResult::Continue;
+                    }
+                    let cards: Vec<(u8, Card)> = discard_pile.iter().enumerate()
+                        .map(|(i, c)| (i as u8, c.clone())).collect();
+                    self.push_screen(Screen::DiscardSelect {
+                        cards,
+                        destination: crate::screen::DiscardSelectDestination::Hand { cost_override: *cost_override },
+                    });
                     return EffectResult::Paused;
                 }
             }
@@ -1645,7 +1673,7 @@ impl GameState {
                     }
                     if exhaust_pile.len() == 1 {
                         let card = exhaust_pile.pop().unwrap();
-                        hand.push(HandCard { card });
+                        hand.push(HandCard { card, cost_override: None });
                         return EffectResult::Continue;
                     }
                     let cards: Vec<(u8, Card)> = exhaust_pile.iter().enumerate()
@@ -1809,7 +1837,7 @@ impl GameState {
                     if let Some(card) = draw_pile.pop() {
                         let card_type = card_db::lookup(&card.id)
                             .map(|info| info.card_type);
-                        hand.push(HandCard { card });
+                        hand.push(HandCard { card, cost_override: None });
 
                         if let Some(ct) = card_type {
                             let triggered = power_db::collect_triggered_effects(
@@ -2357,7 +2385,7 @@ impl GameState {
             Screen::HandSelect { cards, picked_indices, min_cards, max_cards, .. } => {
                 hand_select_actions(cards, picked_indices.len() as u8, *min_cards, *max_cards)
             }
-            Screen::DiscardSelect { cards } => {
+            Screen::DiscardSelect { cards, .. } => {
                 cards.iter().enumerate().map(|(i, (_, card))| {
                     Action::PickDiscard { card: card.clone(), choice_index: i as u8 }
                 }).collect()
@@ -2602,9 +2630,10 @@ fn combat_actions(hand: &[HandCard], monsters: &[Monster], energy: u8, draw_pile
 
     for (i, hc) in hand.iter().enumerate() {
         let info = card_db::lookup(&hc.card.id);
-        let base_cost = info
-            .map(|i| i.effective_cost(hc.card.upgraded))
-            .unwrap_or(hc.card.cost);
+        let base_cost = hc.cost_override.unwrap_or_else(|| {
+            info.map(|i| i.effective_cost(hc.card.upgraded))
+                .unwrap_or(hc.card.cost)
+        });
         let card_type = info.map(|i| i.card_type).unwrap_or(card_db::CardType::Skill);
         let cost = power_db::get_modified_cost(base_cost, card_type, player_powers);
         let is_x_cost = cost == -1;

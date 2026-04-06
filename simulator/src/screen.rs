@@ -101,6 +101,8 @@ pub enum Screen {
     },
     DiscardSelect {
         cards: Vec<(u8, Card)>,
+        #[serde(default)]
+        destination: DiscardSelectDestination,
     },
     ExhaustSelect {
         cards: Vec<(u8, Card)>,
@@ -236,8 +238,17 @@ pub struct ShopPotion {
     pub price: Option<u16>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DiscardSelectDestination {
+    #[default]
+    DrawPile,
+    Hand { cost_override: Option<i8> },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HandCard {
     #[serde(flatten)]
     pub card: Card,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_override: Option<i8>,
 }

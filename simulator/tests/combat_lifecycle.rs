@@ -13,6 +13,7 @@ fn make_card(id: &str, cost: i8, card_type: &str) -> Card {
 fn make_hand_card(id: &str, cost: i8, card_type: &str) -> HandCard {
     HandCard {
         card: make_card(id, cost, card_type),
+        cost_override: None,
     }
 }
 
