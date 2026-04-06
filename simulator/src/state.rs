@@ -1333,7 +1333,15 @@ impl GameState {
 
         // Finalize
         if self.hp == 0 {
-            self.set_screen(Screen::GameOver { victory: false });
+            // Check for Fairy Potion before game over
+            if let Some(slot) = self.potions.iter().position(|p| {
+                p.as_ref().map_or(false, |p| p.id == "BoardGame:BGFairyPotion")
+            }) {
+                self.potions[slot] = None;
+                self.hp = 2;
+            } else {
+                self.set_screen(Screen::GameOver { victory: false });
+            }
         } else if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
             if !monsters.is_empty() && monsters.iter().all(|m| m.state == MonsterState::Dead) {
                 self.finish_combat();
