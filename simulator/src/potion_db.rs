@@ -84,6 +84,10 @@ static POTIONS: &[PotionInfo] = &[
         id: "BoardGame:BGGhostInAJar",
         effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGIntangible", amount: 1 }],
     },
+    PotionInfo {
+        id: "BoardGame:BGDistilledChaos",
+        effects: &[Effect::DistilledChaos],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static PotionInfo> {

@@ -129,6 +129,12 @@ pub enum Screen {
         target: Option<u8>,
         max_energy: u8,
     },
+    /// Cards drawn by Distilled Chaos waiting to be played for free.
+    /// Player picks one at a time; each is played before the next pick.
+    #[serde(skip)]
+    AutoPlaySelect {
+        cards: Vec<Card>,
+    },
     CustomScreen {
         screen_enum: String,
         options: Vec<String>,

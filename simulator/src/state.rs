@@ -373,6 +373,33 @@ impl GameState {
         self.screen.push(s);
     }
 
+    /// Push a TargetSelect screen, or auto-resolve if there's exactly one live monster.
+    /// Returns true if the screen was pushed (caller should pause), false if auto-resolved.
+    fn push_target_select_or_resolve(&mut self, reason: TargetReason, effects: Vec<Effect>) -> bool {
+        let single_target = if let Some(Screen::Combat { monsters, .. }) = self.find_combat_mut() {
+            let live: Vec<u8> = monsters.iter().enumerate()
+                .filter(|(_, m)| m.state == MonsterState::Alive)
+                .map(|(i, _)| i as u8)
+                .collect();
+            if live.len() == 1 { Some(live[0]) } else { None }
+        } else {
+            None
+        };
+
+        if let Some(idx) = single_target {
+            let target = ResolvedTarget::Monster(idx);
+            if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                for effect in effects.into_iter().rev() {
+                    effect_queue.push_front((effect, target));
+                }
+            }
+            false
+        } else {
+            self.push_screen(Screen::TargetSelect { reason, effects });
+            true
+        }
+    }
+
     pub fn pop_screen(&mut self) {
         if self.screen.len() > 1 {
             self.screen.pop();
@@ -1196,6 +1223,61 @@ impl GameState {
                     }
                 }
             }
+            Action::PickAutoPlay { choice_index, .. } => {
+                let idx = *choice_index as usize;
+                if let Screen::AutoPlaySelect { cards } = self.current_screen() {
+                    if idx < cards.len() {
+                        let card = cards[idx].clone();
+                        // Remove the card from the screen
+                        if let Screen::AutoPlaySelect { cards } = self.current_screen_mut() {
+                            cards.remove(idx);
+                        }
+                        // If no cards remain, pop the screen
+                        if let Screen::AutoPlaySelect { cards } = self.current_screen() {
+                            if cards.is_empty() {
+                                self.pop_screen();
+                            }
+                        }
+
+                        // Build effects for playing this card for free
+                        let info = card_db::lookup(&card.id);
+                        let has_target = info.map(|i| i.target.has_target()).unwrap_or(false);
+                        let is_power = info.map(|i| i.card_type == card_db::CardType::Power).unwrap_or(false);
+                        let card_type = info.map(|i| i.card_type).unwrap_or(card_db::CardType::Skill);
+
+                        let mut all_effects: Vec<Effect> = info
+                            .map(|i| i.effective_effects(card.upgraded).to_vec())
+                            .unwrap_or_default();
+
+                        if card_type == card_db::CardType::Attack {
+                            if let Some(Screen::Combat { player_powers, monsters, .. }) = self.find_combat_mut() {
+                                all_effects.push(make_tick_down_attack_powers_effect(player_powers, monsters));
+                            }
+                        }
+
+                        if !is_power {
+                            all_effects.push(Effect::DisposeCard {
+                                card: card.clone(),
+                                exhaust: false,
+                                rebound: false,
+                            });
+                        }
+
+                        if has_target {
+                            if !self.push_target_select_or_resolve(TargetReason::Card(card), all_effects) {
+                                self.drain_effect_queue();
+                            }
+                        } else {
+                            if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                                for effect in all_effects.into_iter().rev() {
+                                    effect_queue.push_front((effect, ResolvedTarget::NoTarget));
+                                }
+                            }
+                            self.drain_effect_queue();
+                        }
+                    }
+                }
+            }
             Action::PickDiscard { choice_index, .. } => {
                 let idx = *choice_index as usize;
                 if let Screen::DiscardSelect { cards, destination } = self.current_screen() {
@@ -1927,11 +2009,9 @@ impl GameState {
                     }
 
                     if has_target {
-                        self.push_screen(Screen::TargetSelect {
-                            reason: TargetReason::Card(card.clone()),
-                            effects: all_effects,
-                        });
-                        return EffectResult::Paused;
+                        if self.push_target_select_or_resolve(TargetReason::Card(card.clone()), all_effects) {
+                            return EffectResult::Paused;
+                        }
                     } else {
                         for effect in all_effects.into_iter().rev() {
                             effect_queue.push_front((effect, ResolvedTarget::NoTarget));
@@ -1940,32 +2020,30 @@ impl GameState {
                 }
             }
             Effect::DamageFixedTargetSelect { amount, reason } => {
-                self.push_screen(Screen::TargetSelect {
-                    reason: reason.clone(),
-                    effects: vec![Effect::DamageFixed(*amount)],
-                });
-                return EffectResult::Paused;
+                if self.push_target_select_or_resolve(reason.clone(), vec![Effect::DamageFixed(*amount)]) {
+                    return EffectResult::Paused;
+                }
             }
             Effect::ApplyPowerTargetSelect { power_id, amount } => {
-                self.push_screen(Screen::TargetSelect {
-                    reason: TargetReason::Pending,
-                    effects: vec![Effect::ApplyPower {
-                        target: EffectTarget::TargetEnemy,
-                        power_id,
-                        amount: *amount,
-                    }],
-                });
-                return EffectResult::Paused;
+                let effects = vec![Effect::ApplyPower {
+                    target: EffectTarget::TargetEnemy,
+                    power_id,
+                    amount: *amount,
+                }];
+                if self.push_target_select_or_resolve(TargetReason::Pending, effects) {
+                    return EffectResult::Paused;
+                }
             }
             Effect::ShivTargetSelect => {
-                if let Some(Screen::Combat { player_powers, monsters, .. }) = self.find_combat_mut() {
-                    let tick = make_tick_down_attack_powers_effect(player_powers, monsters);
-                    self.push_screen(Screen::TargetSelect {
-                        reason: TargetReason::Pending,
-                        effects: vec![Effect::Damage(1), tick],
-                    });
+                let tick = if let Some(Screen::Combat { player_powers, monsters, .. }) = self.find_combat_mut() {
+                    make_tick_down_attack_powers_effect(player_powers, monsters)
+                } else {
+                    return EffectResult::Continue;
+                };
+                let effects = vec![Effect::Damage(1), tick];
+                if self.push_target_select_or_resolve(TargetReason::Pending, effects) {
+                    return EffectResult::Paused;
                 }
-                return EffectResult::Paused;
             }
             Effect::TickDownMonsterAttackPowers { monster_had_weak, player_had_vuln } => {
                 if let ResolvedTarget::Monster(idx) = target {
@@ -2086,6 +2164,27 @@ impl GameState {
                         }
                     }
                 }
+            }
+            Effect::DistilledChaos => {
+                if let Some(Screen::Combat { effect_queue, .. }) = self.find_combat_mut() {
+                    for _ in 0..3 {
+                        effect_queue.push_back((Effect::DrawOneCard, ResolvedTarget::NoTarget));
+                    }
+                    effect_queue.push_back((Effect::CollectForAutoPlay, ResolvedTarget::NoTarget));
+                }
+            }
+            Effect::CollectForAutoPlay => {
+                if let Some(Screen::Combat { hand, .. }) = self.find_combat_mut() {
+                    let count = hand.len().min(3);
+                    let cards: Vec<Card> = hand.split_off(hand.len() - count)
+                        .into_iter()
+                        .map(|hc| hc.card)
+                        .collect();
+                    if !cards.is_empty() {
+                        self.push_screen(Screen::AutoPlaySelect { cards });
+                    }
+                }
+                return EffectResult::Paused;
             }
             Effect::Custom(_id) => {
                 // Not yet implemented
@@ -2447,6 +2546,11 @@ impl GameState {
             Screen::XCostSelect { max_energy, .. } => {
                 (0..=*max_energy).map(|spend| {
                     Action::PickChoice { label: format!("Spend {}", spend), choice_index: spend }
+                }).collect()
+            }
+            Screen::AutoPlaySelect { cards } => {
+                cards.iter().enumerate().map(|(i, card)| {
+                    Action::PickAutoPlay { card: card.clone(), choice_index: i as u8 }
                 }).collect()
             }
             Screen::Complete | Screen::ShopRoom => vec![Action::Proceed],
