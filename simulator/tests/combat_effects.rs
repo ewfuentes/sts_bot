@@ -4503,3 +4503,75 @@ fn fairy_potion_not_present_means_death() {
 
     assert!(matches!(state.current_screen(), Screen::GameOver { victory: false }));
 }
+
+#[test]
+fn ghost_in_a_jar_grants_intangible() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGGhostInAJar")), None, None];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, vec![], potions);
+
+    state.apply(&use_potion(0, "BoardGame:BGGhostInAJar"));
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(player_powers.iter().any(|p| p.id == "BGIntangible"));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn intangible_caps_large_unblocked_damage() {
+    let mut monster = make_monster("BGCultist", "Cultist", 9, 0, vec![]);
+    monster.damage = Some(5);
+    let monsters = vec![monster];
+    let player_powers = vec![
+        Power { id: "BGIntangible".into(), amount: 1 },
+    ];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, player_powers, vec![None, None, None]);
+    state.hp = 10;
+
+    state.apply(&Action::EndTurn);
+
+    // 5 damage capped to 1 by intangible
+    assert_eq!(state.hp, 9);
+}
+
+#[test]
+fn intangible_removed_at_start_of_next_turn() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let player_powers = vec![
+        Power { id: "BGIntangible".into(), amount: 1 },
+    ];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, player_powers, vec![None, None, None]);
+
+    state.apply(&Action::EndTurn);
+
+    if let Screen::Combat { player_powers, .. } = state.current_screen() {
+        assert!(player_powers.iter().all(|p| p.id != "BGIntangible"),
+            "BGIntangible should be removed at start of turn");
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn intangible_at_zero_still_blocks_subsequent_hits() {
+    // Two monsters attacking — first hit uses up the intangible amount,
+    // second hit should still be blocked (amount at 0 caps to 0)
+    let mut m1 = make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![]);
+    m1.damage = Some(3);
+    let mut m2 = make_monster("BGCultist", "Cultist", 9, 0, vec![]);
+    m2.damage = Some(3);
+    let monsters = vec![m1, m2];
+    let player_powers = vec![
+        Power { id: "BGIntangible".into(), amount: 1 },
+    ];
+    let mut state = combat_state_with_potions(vec![], monsters, 3, 0, player_powers, vec![None, None, None]);
+    state.hp = 10;
+
+    state.apply(&Action::EndTurn);
+
+    // First monster: 3 damage capped to 1, intangible goes to 0
+    // Second monster: 3 damage capped to 0, no HP lost
+    assert_eq!(state.hp, 9); // only 1 total damage taken
+}

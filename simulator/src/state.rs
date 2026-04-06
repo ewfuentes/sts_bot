@@ -1361,8 +1361,16 @@ impl GameState {
                         if dmg <= *player_block {
                             *player_block -= dmg;
                         } else {
-                            let remaining = dmg - *player_block;
+                            let mut remaining = dmg - *player_block;
                             *player_block = 0;
+                            // BGIntangible caps unblocked damage to its amount,
+                            // then decrements. Stays at 0 to block further hits this turn.
+                            if let Some(intangible) = player_powers.iter_mut().find(|p| p.id == "BGIntangible") {
+                                if remaining > intangible.amount.max(0) as u16 {
+                                    remaining = intangible.amount.max(0) as u16;
+                                }
+                                intangible.amount -= remaining as i32;
+                            }
                             self.hp = self.hp.saturating_sub(remaining);
                         }
                     }

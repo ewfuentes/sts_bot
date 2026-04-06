@@ -158,6 +158,15 @@ static POWERS: &[PowerInfo] = &[
         modifiers: &[PowerModifier::RepeatSkill],
     },
     PowerInfo {
+        id: "BGIntangible",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::PlayerStartOfTurn,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGIntangible", amount: i16::MIN }],
+            front_effects: &[],
+        }],
+        modifiers: &[],
+    },
+    PowerInfo {
         id: "BGCorruption",
         triggers: &[],
         modifiers: &[PowerModifier::SkillsCostZero, PowerModifier::SkillsExhaust],
