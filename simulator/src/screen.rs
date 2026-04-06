@@ -1,8 +1,6 @@
-use std::collections::VecDeque;
-
 use serde::{Deserialize, Serialize};
 
-use crate::effects::{Effect, HandSelectAction, ResolvedTarget};
+use crate::effects::{Effect, HandSelectAction};
 use crate::map::MapNodeKind;
 use crate::types::{Card, Monster, Power};
 
@@ -55,9 +53,6 @@ pub enum Screen {
         /// The die roll for this turn (1-6). None if not yet rolled.
         #[serde(default)]
         die_roll: Option<u8>,
-        /// Queue of effects waiting to execute.
-        #[serde(skip)]
-        effect_queue: VecDeque<(Effect, ResolvedTarget)>,
         /// Per-combat RNG, seeded from the map node's seed.
         #[serde(skip)]
         rng: crate::rng::Rng,
@@ -168,7 +163,6 @@ impl Screen {
             player_powers: vec![],
             turn: 0,
             die_roll: None,
-            effect_queue: VecDeque::new(),
             rng: crate::rng::Rng::from_seed(seed),
         }
     }
