@@ -2850,9 +2850,20 @@ fn play_card_effects(
     }
 
     let is_attack = card_type == card_db::CardType::Attack;
+    let is_skill = card_type == card_db::CardType::Skill;
     let repeat_count = if is_attack {
         if let Some(repeat_power_id) = power_db::find_active_modifier(
             power_db::PowerModifier::RepeatAttack,
+            player_powers,
+        ) {
+            apply_power(player_powers, &repeat_power_id, -1);
+            2
+        } else {
+            1
+        }
+    } else if is_skill {
+        if let Some(repeat_power_id) = power_db::find_active_modifier(
+            power_db::PowerModifier::RepeatSkill,
             player_powers,
         ) {
             apply_power(player_powers, &repeat_power_id, -1);

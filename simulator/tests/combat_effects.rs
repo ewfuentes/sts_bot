@@ -4311,3 +4311,28 @@ fn no_gamblers_brew_no_choice_screen() {
     // Should go straight back to combat, no choice screen
     assert!(matches!(state.current_screen(), Screen::Combat { .. }));
 }
+
+#[test]
+fn skill_potion_doubles_next_skill() {
+    let hand = vec![
+        make_hand_card("BGDefend_R", 1, "SKILL"),
+    ];
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let potions = vec![Some(make_potion("BoardGame:BGSkillPotion")), None, None];
+    let mut state = combat_state_with_potions(hand, monsters, 3, 0, vec![], potions);
+
+    // Use skill potion to get BGBurst
+    state.apply(&use_potion(0, "BoardGame:BGSkillPotion"));
+
+    // Play Defend (a skill) — should be doubled by Burst
+    state.apply(&play_action("BGDefend_R", 1, "SKILL", 0, None));
+
+    if let Screen::Combat { player_block, player_powers, .. } = state.current_screen() {
+        // Defend gives 1 block, doubled = 2
+        assert_eq!(*player_block, 2);
+        // Burst should be consumed
+        assert!(player_powers.iter().all(|p| p.id != "BGBurst"));
+    } else {
+        panic!("Expected Combat screen");
+    }
+}

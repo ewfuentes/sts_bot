@@ -34,6 +34,7 @@ pub enum PowerModifier {
     PreventBlockDecay,
     PreventDraw,
     RepeatAttack,
+    RepeatSkill,
     SkillsCostZero,
     SkillsExhaust,
 }
@@ -146,6 +147,15 @@ static POWERS: &[PowerInfo] = &[
             front_effects: &[],
         }],
         modifiers: &[PowerModifier::RepeatAttack],
+    },
+    PowerInfo {
+        id: "BGBurst",
+        triggers: &[TriggeredEffect {
+            trigger: PowerTrigger::PlayerEndOfTurn,
+            effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGBurst", amount: i16::MIN }],
+            front_effects: &[],
+        }],
+        modifiers: &[PowerModifier::RepeatSkill],
     },
     PowerInfo {
         id: "BGCorruption",

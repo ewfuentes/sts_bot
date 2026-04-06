@@ -31,6 +31,10 @@ static POTIONS: &[PotionInfo] = &[
         effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGDoubleAttack", amount: 1 }],
     },
     PotionInfo {
+        id: "BoardGame:BGSkillPotion",
+        effects: &[Effect::ApplyPower { target: EffectTarget::_Self, power_id: "BGBurst", amount: 1 }],
+    },
+    PotionInfo {
         id: "BoardGame:BGFire Potion",
         effects: &[Effect::DamageFixedTargetSelect { amount: 4, reason: crate::screen::TargetReason::Pending }],
     },
