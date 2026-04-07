@@ -628,7 +628,11 @@ impl GameState {
                             if let Some(idx) = self.deck.iter().position(|c| c == card) {
                                 self.deck.remove(idx);
                             }
-                            // TODO: add a random replacement card (needs card pool)
+                            if let Some(pools) = &mut self.reward_pools {
+                                if let Some(new_card) = pools.draw_card_reward(1).pop() {
+                                    self.deck.push(new_card);
+                                }
+                            }
                             self.pop_screen();
                         }
                         "upgrade" => {
@@ -1743,6 +1747,29 @@ impl GameState {
             Effect::RemoveStrike => {
                 if let Some(idx) = self.deck.iter().position(|c| c.id == "BGStrike_R") {
                     self.deck.remove(idx);
+                }
+            }
+            Effect::TransformFromDeck => {
+                let cards = self.transformable_cards();
+                if !cards.is_empty() {
+                    self.push_screen(Screen::Grid {
+                        purpose: "transform".to_string(),
+                        cards,
+                    });
+                    return EffectResult::Paused;
+                }
+            }
+            Effect::FullHeal => {
+                self.hp = self.max_hp;
+            }
+            Effect::UpgradeRandomCards => {
+                let upgradeable: Vec<usize> = self.deck.iter()
+                    .enumerate()
+                    .filter(|(_, c)| !c.upgraded && c.card_type != "CURSE" && c.card_type != "STATUS")
+                    .map(|(i, _)| i)
+                    .collect();
+                for &idx in upgradeable.iter().take(2) {
+                    self.deck[idx].upgraded = true;
                 }
             }
             Effect::ChooseCardReward => {
