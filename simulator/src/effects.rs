@@ -42,6 +42,22 @@ pub enum Effect {
     GainEnergy(u8),
     Heal(u16),
     LoseHP(u16),
+    GainGold(u16),
+    LoseGold(u16),
+    /// Open a Grid screen to purge a card from the deck.
+    PurgeFromDeck,
+    /// Open a Grid screen to upgrade a card from the deck.
+    UpgradeFromDeck,
+    /// Gain a random relic from the relic pool.
+    GainRandomRelic,
+    /// Gain a random curse from the curse pool.
+    GainRandomCurse,
+    /// Pick one of N random cards to add to the deck.
+    ChooseCardReward,
+    /// Upgrade the first non-upgraded starter strike in the deck.
+    UpgradeStrike,
+    /// Remove the first starter strike from the deck.
+    RemoveStrike,
     AddCardToPile {
         card_id: &'static str,
         pile: Pile,
