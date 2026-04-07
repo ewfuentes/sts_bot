@@ -1006,7 +1006,26 @@ impl GameState {
                     },
                     MapNodeKind::Shop => self.generate_shop(),
                     MapNodeKind::Treasure => Screen::Treasure,
-                    MapNodeKind::Event | MapNodeKind::Unknown => Screen::Complete,
+                    MapNodeKind::Event => {
+                        let event_id = encounter_id.as_deref();
+                        if let Some(info) = event_id.and_then(crate::event_db::lookup) {
+                            let choices = info.options.iter().filter(|o| {
+                                match o.condition {
+                                    None => true,
+                                    Some(crate::event_db::EventCondition::MinGold(g)) => self.gold >= g,
+                                }
+                            }).map(|o| {
+                                (o.label.to_string(), o.effects.to_vec())
+                            }).collect();
+                            Screen::ChoiceSelect {
+                                choices,
+                                target_index: None,
+                            }
+                        } else {
+                            Screen::Complete
+                        }
+                    }
+                    MapNodeKind::Unknown => Screen::Complete,
                 };
                 self.push_screen(screen);
 
@@ -1663,6 +1682,79 @@ impl GameState {
             }
             Effect::LoseHP(amount) => {
                 self.hp = self.hp.saturating_sub(*amount);
+            }
+            Effect::GainGold(amount) => {
+                self.gold += amount;
+            }
+            Effect::LoseGold(amount) => {
+                self.gold = self.gold.saturating_sub(*amount);
+            }
+            Effect::PurgeFromDeck => {
+                let cards = self.purgeable_cards();
+                if !cards.is_empty() {
+                    self.push_screen(Screen::Grid {
+                        purpose: "purge".to_string(),
+                        cards,
+                    });
+                    return EffectResult::Paused;
+                }
+            }
+            Effect::UpgradeFromDeck => {
+                let cards = self.upgradeable_cards();
+                if !cards.is_empty() {
+                    self.push_screen(Screen::Grid {
+                        purpose: "upgrade".to_string(),
+                        cards,
+                    });
+                    return EffectResult::Paused;
+                }
+            }
+            Effect::GainRandomRelic => {
+                if let Some(pools) = &mut self.reward_pools {
+                    if let Some(relic_id) = pools.draw_relic() {
+                        self.relics.push(Relic {
+                            id: relic_id.clone(),
+                            name: relic_id,
+                            counter: -1,
+                            clickable: false,
+                            pulsing: false,
+                        });
+                    }
+                }
+            }
+            Effect::GainRandomCurse => {
+                if let Some(pools) = &mut self.reward_pools {
+                    if let Some(id) = pools.curse_deck.draw() {
+                        self.deck.push(Card {
+                            id: id.clone(),
+                            name: id,
+                            cost: -2,
+                            card_type: "CURSE".to_string(),
+                            upgraded: false,
+                        });
+                    }
+                }
+            }
+            Effect::UpgradeStrike => {
+                if let Some(card) = self.deck.iter_mut().find(|c| c.id == "BGStrike_R" && !c.upgraded) {
+                    card.upgraded = true;
+                }
+            }
+            Effect::RemoveStrike => {
+                if let Some(idx) = self.deck.iter().position(|c| c.id == "BGStrike_R") {
+                    self.deck.remove(idx);
+                }
+            }
+            Effect::ChooseCardReward => {
+                let cards = if let Some(pools) = &mut self.reward_pools {
+                    pools.draw_card_reward(3)
+                } else {
+                    vec![]
+                };
+                if !cards.is_empty() {
+                    self.push_screen(Screen::CardReward { cards });
+                    return EffectResult::Paused;
+                }
             }
             Effect::AddCardToPile { card_id, pile, count } => {
                 if let Some(Screen::Combat { draw_pile, discard_pile, exhaust_pile, .. }) = find_combat_in(&mut self.screen) {
