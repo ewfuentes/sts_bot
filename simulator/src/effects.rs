@@ -1,3 +1,11 @@
+/// An outcome range for event die rolls.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DieOutcome {
+    pub min: u8,
+    pub max: u8,
+    pub effects: &'static [Effect],
+}
+
 /// What the damage amount is derived from at resolution time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DamageSource {
@@ -64,6 +72,13 @@ pub enum Effect {
     FullHeal,
     /// Upgrade 1-2 random upgradeable cards in the deck.
     UpgradeRandomCards,
+    /// Open a Grid screen to offer a card to the bonfire. Reward depends on rarity.
+    BonfireOffer,
+    /// Roll 1d6 and queue effects based on the result. Each entry is (min, max, effects).
+    /// Uses the game-level RNG.
+    EventDieRoll(&'static [DieOutcome]),
+    /// Gain a random potion from the potion pool into an empty slot.
+    GainRandomPotion,
     AddCardToPile {
         card_id: &'static str,
         pile: Pile,

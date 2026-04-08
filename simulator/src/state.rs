@@ -55,6 +55,9 @@ pub struct GameState {
     /// be used both inside and outside combat.
     #[serde(skip)]
     pub effect_queue: std::collections::VecDeque<(Effect, ResolvedTarget)>,
+    /// RNG for non-combat randomness (events, map generation, etc.)
+    #[serde(skip)]
+    pub rng: crate::rng::Rng,
 }
 
 /// All the draw-from-top pools used in the Board Game mod.
@@ -641,6 +644,29 @@ impl GameState {
                             }
                             self.pop_screen();
                         }
+                        "bonfire" => {
+                            let card_type = card.card_type.clone();
+                            let rarity = card_db::lookup(&card.id)
+                                .map(|info| info.rarity)
+                                .unwrap_or(card_db::CardRarity::Common);
+                            if let Some(idx) = self.deck.iter().position(|c| c == card) {
+                                self.deck.remove(idx);
+                            }
+                            match rarity {
+                                card_db::CardRarity::Rare => {
+                                    self.effect_queue.push_back((Effect::FullHeal, ResolvedTarget::NoTarget));
+                                }
+                                card_db::CardRarity::Uncommon => {
+                                    self.effect_queue.push_back((Effect::Heal(3), ResolvedTarget::NoTarget));
+                                }
+                                _ if card_type == "CURSE" => {
+                                    self.effect_queue.push_back((Effect::LoseHP(1), ResolvedTarget::NoTarget));
+                                }
+                                _ => {}
+                            }
+                            self.pop_screen();
+                            self.drain_effect_queue();
+                        }
                         _ => {}
                     }
                 }
@@ -1011,6 +1037,7 @@ impl GameState {
                     MapNodeKind::Shop => self.generate_shop(),
                     MapNodeKind::Treasure => Screen::Treasure,
                     MapNodeKind::Event => {
+                        self.rng = crate::rng::Rng::from_seed(node_seed);
                         let event_id = encounter_id.as_deref();
                         if let Some(info) = event_id.and_then(crate::event_db::lookup) {
                             let choices = info.options.iter().filter(|o| {
@@ -1761,6 +1788,36 @@ impl GameState {
             }
             Effect::FullHeal => {
                 self.hp = self.max_hp;
+            }
+            Effect::BonfireOffer => {
+                let cards = self.purgeable_cards();
+                if !cards.is_empty() {
+                    self.push_screen(Screen::Grid {
+                        purpose: "bonfire".to_string(),
+                        cards,
+                    });
+                    return EffectResult::Paused;
+                }
+            }
+            Effect::GainRandomPotion => {
+                if let Some(slot) = self.potions.iter().position(|p| p.is_none()) {
+                    if let Some(pools) = &mut self.reward_pools {
+                        if let Some(id) = pools.potion_deck.draw() {
+                            self.potions[slot] = Some(Potion { id: id.clone(), name: id });
+                        }
+                    }
+                }
+            }
+            Effect::EventDieRoll(outcomes) => {
+                let roll = self.rng.roll_die(6);
+                for outcome in outcomes.iter() {
+                    if roll >= outcome.min && roll <= outcome.max {
+                        for effect in outcome.effects {
+                            self.effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
+                        }
+                        break;
+                    }
+                }
             }
             Effect::UpgradeRandomCards => {
                 let upgradeable: Vec<usize> = self.deck.iter()
