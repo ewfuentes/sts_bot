@@ -1,7 +1,9 @@
 use crate::effects::Effect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PowerTrigger {
+pub enum Trigger {
+    StartOfCombat,
+    EndOfCombat,
     OnExhaust,
     OnDraw { card_type: crate::card_db::CardType },
     OnShuffle,
@@ -20,7 +22,7 @@ pub enum PowerTrigger {
 
 #[derive(Debug, Clone)]
 pub struct TriggeredEffect {
-    pub trigger: PowerTrigger,
+    pub trigger: Trigger,
     /// Effects queued to the back. The power's `amount` is substituted for any
     /// effect that uses it (e.g. Block(0) becomes Block(amount)).
     pub effects: &'static [Effect],
@@ -49,7 +51,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "FeelNoPain",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::OnExhaust,
+            trigger: Trigger::OnExhaust,
             effects: &[Effect::Block(0)],
             front_effects: &[],
         }],
@@ -58,7 +60,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGDarkEmbrace",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::OnExhaust,
+            trigger: Trigger::OnExhaust,
             effects: &[Effect::Draw(0)],
             front_effects: &[],
         }],
@@ -67,7 +69,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "Evolve",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
+            trigger: Trigger::OnDraw { card_type: crate::card_db::CardType::Status },
             effects: &[Effect::Draw(0)],
             front_effects: &[],
         }],
@@ -77,12 +79,12 @@ static POWERS: &[PowerInfo] = &[
         id: "FireBreathing",
         triggers: &[
             TriggeredEffect {
-                trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Status },
+                trigger: Trigger::OnDraw { card_type: crate::card_db::CardType::Status },
                 effects: &[Effect::DamageFixedAll(0)],
                 front_effects: &[],
             },
             TriggeredEffect {
-                trigger: PowerTrigger::OnDraw { card_type: crate::card_db::CardType::Curse },
+                trigger: Trigger::OnDraw { card_type: crate::card_db::CardType::Curse },
                 effects: &[Effect::DamageFixedAll(0)],
                 front_effects: &[],
             },
@@ -92,7 +94,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "Metallicize",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerEndOfTurn,
+            trigger: Trigger::PlayerEndOfTurn,
             effects: &[Effect::Block(0)],
             front_effects: &[],
         }],
@@ -101,7 +103,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGCombust",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerEndOfTurn,
+            trigger: Trigger::PlayerEndOfTurn,
             effects: &[Effect::DamageFixedAll(0)],
             front_effects: &[],
         }],
@@ -110,7 +112,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGBerserk",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::OnExhaust,
+            trigger: Trigger::OnExhaust,
             effects: &[Effect::DamageFixedAll(0)],
             front_effects: &[],
         }],
@@ -119,7 +121,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "DemonForm",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerStartOfTurn,
+            trigger: Trigger::PlayerStartOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
             front_effects: &[],
         }],
@@ -133,7 +135,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGJuggernaut",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::OnGainBlock,
+            trigger: Trigger::OnGainBlock,
             effects: &[Effect::DamageFixedTargetSelect { amount: 0, reason: crate::screen::TargetReason::Pending }],
             front_effects: &[],
         }],
@@ -142,7 +144,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGDoubleAttack",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerEndOfTurn,
+            trigger: Trigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGDoubleAttack", amount: i16::MIN }],
             front_effects: &[],
         }],
@@ -151,7 +153,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGBurst",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerEndOfTurn,
+            trigger: Trigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGBurst", amount: i16::MIN }],
             front_effects: &[],
         }],
@@ -160,7 +162,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGIntangible",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerStartOfTurn,
+            trigger: Trigger::PlayerStartOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGIntangible", amount: i16::MIN }],
             front_effects: &[],
         }],
@@ -174,7 +176,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "Ritual",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::MonsterEndOfTurn,
+            trigger: Trigger::MonsterEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
             front_effects: &[],
         }],
@@ -183,7 +185,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "NoDrawPower",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerEndOfTurn,
+            trigger: Trigger::PlayerEndOfTurn,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "NoDrawPower", amount: -1 }],
             front_effects: &[],
         }],
@@ -193,7 +195,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGCurlUp",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::MonsterOnDamaged,
+            trigger: Trigger::MonsterOnDamaged,
             effects: &[Effect::MonsterBlock(0)],
             front_effects: &[
                 Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "BGCurlUp", amount: i16::MIN },
@@ -204,7 +206,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGSporeCloud",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::MonsterOnDeath,
+            trigger: Trigger::MonsterOnDeath,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::Player, power_id: "BGVulnerable", amount: 0 }],
             front_effects: &[],
         }],
@@ -213,7 +215,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "Angry",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::MonsterOnAttacked,
+            trigger: Trigger::MonsterOnAttacked,
             effects: &[Effect::ApplyPower { target: crate::effects::EffectTarget::_Self, power_id: "Strength", amount: 0 }],
             front_effects: &[],
         }],
@@ -222,7 +224,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGSharpHide",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerOnPlay { card_type: crate::card_db::CardType::Attack },
+            trigger: Trigger::PlayerOnPlay { card_type: crate::card_db::CardType::Attack },
             effects: &[Effect::DamageFixed(0)],
             front_effects: &[],
         }],
@@ -231,7 +233,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGAnger",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::PlayerOnPlay { card_type: crate::card_db::CardType::Skill },
+            trigger: Trigger::PlayerOnPlay { card_type: crate::card_db::CardType::Skill },
             effects: &[Effect::DamageFixed(0)],
             front_effects: &[],
         }],
@@ -240,7 +242,7 @@ static POWERS: &[PowerInfo] = &[
     PowerInfo {
         id: "BGSplit",
         triggers: &[TriggeredEffect {
-            trigger: PowerTrigger::MonsterOnDeath,
+            trigger: Trigger::MonsterOnDeath,
             effects: &[
                 Effect::SpawnMonster { id: "BGAcidSlime_L", hp: 12 },
                 Effect::SpawnMonster { id: "BGAcidSlime_M", hp: 5 },
@@ -321,7 +323,7 @@ pub struct TriggeredEffects {
 /// Collect all effects that should fire for the given trigger,
 /// scanning both player powers and all living monsters' powers.
 pub fn collect_all_triggered_effects(
-    trigger: PowerTrigger,
+    trigger: Trigger,
     player_powers: &[crate::types::Power],
     monsters: &[crate::types::Monster],
 ) -> TriggeredEffects {
@@ -346,7 +348,7 @@ pub fn collect_all_triggered_effects(
 /// (e.g. `ResolvedTarget::Monster(idx)` for a monster's Ritual power,
 /// `ResolvedTarget::Player` for a player's DemonForm power).
 pub fn collect_triggered_effects(
-    trigger: PowerTrigger,
+    trigger: Trigger,
     powers: &[crate::types::Power],
     owner: crate::effects::ResolvedTarget,
 ) -> TriggeredEffects {
@@ -356,7 +358,7 @@ pub fn collect_triggered_effects(
 }
 
 fn collect_from_powers(
-    trigger: PowerTrigger,
+    trigger: Trigger,
     powers: &[crate::types::Power],
     owner: crate::effects::ResolvedTarget,
     result: &mut TriggeredEffects,

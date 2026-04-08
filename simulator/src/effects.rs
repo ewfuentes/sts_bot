@@ -78,6 +78,13 @@ pub enum Effect {
     EventDieRoll { seed: u64, outcomes: &'static [DieOutcome] },
     /// Gain a random potion from the potion pool into an empty slot.
     GainRandomPotion,
+    /// Heal up to a minimum HP (e.g. Meat on the Bone heals to 4 if below).
+    HealToMinHP(u16),
+    /// Gain 1 block if current block is 0 (Orichalcum).
+    OrichalcumBlock,
+    /// All monsters dead — queues end-of-combat relic effects, pops combat
+    /// screen, and pushes reward screens.
+    CombatOver,
     AddCardToPile {
         card_id: &'static str,
         pile: Pile,

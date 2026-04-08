@@ -4682,3 +4682,211 @@ fn distilled_chaos_plays_cards_sequentially() {
         panic!("Expected Combat screen, got {:?}", state.current_screen());
     }
 }
+
+// ── Relics ──
+
+fn combat_state_with_relics(
+    monsters: Vec<Monster>,
+    relics: Vec<(&str, &str)>,
+) -> GameState {
+    let relic_json: Vec<_> = relics.iter().map(|(id, name)| {
+        serde_json::json!({"id": id, "name": name})
+    }).collect();
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [
+            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+            {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
+            {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
+        ],
+        "relics": relic_json,
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 0,
+            "player_powers": [],
+            "die_roll": null,
+            "turn": 0
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+    state.start_combat();
+    state.apply_monster_starting_effects();
+    state
+}
+
+#[test]
+fn anchor_grants_block_at_combat_start() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let state = combat_state_with_relics(monsters, vec![
+        ("BoardGame:BurningBlood", "Burning Blood"),
+        ("BGAnchor", "Anchor"),
+    ]);
+
+    if let Screen::Combat { player_block, .. } = state.current_screen() {
+        assert_eq!(*player_block, 2);
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn lantern_grants_energy_at_combat_start() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let state = combat_state_with_relics(monsters, vec![
+        ("BoardGame:BurningBlood", "Burning Blood"),
+        ("BGLantern", "Lantern"),
+    ]);
+
+    if let Screen::Combat { player_energy, .. } = state.current_screen() {
+        assert_eq!(*player_energy, 4); // 3 base + 1 from Lantern
+    } else {
+        panic!("Expected Combat screen");
+    }
+}
+
+#[test]
+fn blood_vial_heals_at_combat_start() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 8, 0, vec![])];
+    let relic_json = serde_json::json!([
+        {"id": "BoardGame:BurningBlood", "name": "Burning Blood"},
+        {"id": "BGBlood Vial", "name": "Blood Vial"}
+    ]);
+    let json = serde_json::json!({
+        "hp": 8, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [
+            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
+            {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
+        ],
+        "relics": relic_json,
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 0,
+            "player_powers": [],
+            "die_roll": null,
+            "turn": 0
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+    state.start_combat();
+    state.apply_monster_starting_effects();
+
+    // Blood Vial heals 1 at combat start: 8 + 1 = 9
+    assert_eq!(state.hp, 9);
+}
+
+#[test]
+fn orichalcum_grants_block_when_zero() {
+    // BGCultist deals 1 damage on turn 1. With Orichalcum granting 1 block
+    // at end of turn, the block absorbs the damage and HP stays at 10.
+    // Without Orichalcum, HP would be 9.
+    let monsters = vec![make_monster("BGCultist", "Cultist", 9, 0, vec![])];
+
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [
+            {"id": "BoardGame:BurningBlood", "name": "Burning Blood"},
+            {"id": "BGOrichalcum", "name": "Orichalcum"}
+        ],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Without Orichalcum, Cultist does 1 dmg → HP=9
+    // With Orichalcum, 1 block absorbs 1 dmg → HP=10
+    state.apply(&Action::EndTurn);
+
+    assert_eq!(state.hp, 10, "Orichalcum block should absorb the Cultist's 1 damage");
+}
+
+#[test]
+fn golden_idol_grants_gold_after_combat() {
+    let monsters = vec![make_monster("BGJawWorm", "Jaw Worm", 1, 0, vec![])];
+    // Use a direct combat state (already in combat) so hand is predictable
+    let json = serde_json::json!({
+        "hp": 10, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [
+            {"id": "BoardGame:BurningBlood", "name": "Burning Blood"},
+            {"id": "BGGolden Idol", "name": "Golden Idol"}
+        ],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "combat",
+            "encounter": "test",
+            "monsters": monsters,
+            "hand": [{"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false}],
+            "draw_pile": [],
+            "discard_pile": [],
+            "exhaust_pile": [],
+            "player_block": 0,
+            "player_energy": 3,
+            "player_powers": [],
+            "die_roll": 1,
+            "turn": 1
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    // Kill the monster
+    state.apply(&play_action("BGStrike_R", 1, "ATTACK", 0, Some(0)));
+
+    // Should have gotten 1 gold from Golden Idol
+    assert!(state.gold >= 1);
+}
+
+#[test]
+fn regal_pillow_adds_heal_at_rest() {
+    let json = serde_json::json!({
+        "hp": 2, "max_hp": 10, "gold": 0, "floor": 1, "act": 1, "ascension": 0,
+        "deck": [],
+        "relics": [
+            {"id": "BoardGame:BurningBlood", "name": "Burning Blood"},
+            {"id": "BGRegal Pillow", "name": "Regal Pillow"}
+        ],
+        "potions": [null, null, null],
+        "screen": {
+            "type": "rest",
+            "options": ["rest", "smith"]
+        }
+    });
+    let mut state = GameState::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+
+    state.apply(&Action::Rest { choice_index: 0 });
+
+    // 3 base heal + 3 from Regal Pillow = 6
+    assert_eq!(state.hp, 8); // 2 + 6
+}
