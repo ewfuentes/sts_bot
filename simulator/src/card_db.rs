@@ -222,17 +222,17 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .upgraded_effects(&[Block(2)]),
         CardInfo::new("BGBash", 2, CardType::Attack, CardTarget::Enemy,
             &[Damage(2), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 }])
-            .upgraded_effects(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 2 }]),
+            .upgraded_effects(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 }]),
         // ── Verified attacks ──
         CardInfo::new("BGCleave", 1, CardType::Attack, CardTarget::AllEnemy, &[DamageAll(2)])
             .upgraded_effects(&[DamageAll(3)]),
         CardInfo::new("BGClothesline", 2, CardType::Attack, CardTarget::Enemy,
             &[Damage(3), ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 1 }])
-            .upgraded_effects(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 }]),
+            .upgraded_effects(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 1 }]),
         CardInfo::new("BGTwin Strike", 1, CardType::Attack, CardTarget::Enemy, &[Damage(1), Damage(1)])
             .upgraded_effects(&[Damage(2), Damage(2)]),
         CardInfo::new("BGPommel Strike", 1, CardType::Attack, CardTarget::Enemy, &[Damage(2), Draw(1)])
-            .upgraded_effects(&[Damage(3), Draw(2)]),
+            .upgraded_effects(&[Damage(2), Draw(2)]),
         CardInfo::new("BGBludgeon", 3, CardType::Attack, CardTarget::Enemy, &[Damage(7)])
             .upgraded_effects(&[Damage(10)]),
         CardInfo::new("BGUppercut", 2, CardType::Attack, CardTarget::Enemy, &[
@@ -363,7 +363,7 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .exhaust()
             .upgraded_effects(&[
                 ApplyPower { target: AllEnemies, power_id: "BGWeakened", amount: 2 },
-                ApplyPower { target: AllEnemies, power_id: "BGVulnerable", amount: 2 },
+                ApplyPower { target: AllEnemies, power_id: "BGVulnerable", amount: 1 },
             ]),
         CardInfo::new("BGSeeing Red", 1, CardType::Skill, CardTarget::None, &[GainEnergy(2)])
             .exhaust()
@@ -373,8 +373,7 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .upgraded_effects(&[LoseHP(1), GainEnergy(2), Draw(5)]),
         CardInfo::new("BGRupture", 1, CardType::Skill, CardTarget::_Self,
             &[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
-            .upgraded_cost(0)
-            .upgraded_effects(&[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 2 }]),
+            .upgraded_cost(0),
         CardInfo::new("BGSpot Weakness", 1, CardType::Skill, CardTarget::_Self,
             &[ConditionalOnDieRoll { min: 1, max: 3, effects: &[
                 ApplyPower { target: _Self, power_id: "Strength", amount: 1 },
@@ -391,8 +390,7 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .upgraded_cost(1),
         CardInfo::new("BGMetallicize", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "Metallicize", amount: 1 }])
-            .upgraded_cost(0)
-            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "Metallicize", amount: 2 }]),
+            .upgraded_cost(0),
         CardInfo::new("BGDemon Form", 3, CardType::Power, CardTarget::None,
             &[ApplyPower { target: _Self, power_id: "DemonForm", amount: 1 }])
             .upgraded_cost(2),
@@ -413,12 +411,10 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .upgraded_cost(1),
         CardInfo::new("BGEvolve", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "Evolve", amount: 1 }])
-            .upgraded_cost(0)
-            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "Evolve", amount: 2 }]),
+            .upgraded_cost(0),
         CardInfo::new("BGFeel No Pain", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "FeelNoPain", amount: 1 }])
-            .upgraded_cost(0)
-            .upgraded_effects(&[ApplyPower { target: _Self, power_id: "FeelNoPain", amount: 2 }]),
+            .upgraded_cost(0),
         CardInfo::new("BGJuggernaut", 2, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 1 }])
             .upgraded_effects(&[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 2 }]),
