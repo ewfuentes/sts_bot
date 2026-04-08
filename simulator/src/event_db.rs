@@ -1,4 +1,4 @@
-use crate::effects::Effect;
+use crate::effects::{DieOutcome, Effect};
 
 pub struct EventInfo {
     pub id: &'static str,
@@ -94,6 +94,59 @@ static ACT1_EVENTS: &[EventInfo] = &[
         options: &[
             EventOptionInfo { label: "Upgrade a Card", effects: &[Effect::UpgradeFromDeck], condition: None },
             EventOptionInfo { label: "Gamble (2 dmg, upgrade 1-2 random)", effects: &[Effect::LoseHP(2), Effect::UpgradeRandomCards], condition: None },
+        ],
+    },
+    // ── Die roll events ──
+    EventInfo {
+        id: "BGAccursed Blacksmith",
+        name: "Accursed Blacksmith",
+        options: &[
+            EventOptionInfo {
+                label: "Forge (Upgrade + 2 dmg)",
+                effects: &[Effect::LoseHP(2), Effect::UpgradeFromDeck],
+                condition: None,
+            },
+            EventOptionInfo {
+                label: "Rummage (Roll for relic)",
+                effects: &[Effect::EventDieRoll { seed: 0, outcomes: &[
+                    DieOutcome { min: 1, max: 3, effects: &[Effect::GainRandomRelic, Effect::GainRandomCurse] },
+                    DieOutcome { min: 4, max: 6, effects: &[Effect::GainRandomRelic] },
+                ] }],
+                condition: None,
+            },
+            EventOptionInfo { label: "Leave", effects: &[], condition: None },
+        ],
+    },
+    EventInfo {
+        id: "BGWheel of Change",
+        name: "Wheel of Change",
+        options: &[
+            EventOptionInfo {
+                label: "Spin the Wheel",
+                effects: &[Effect::EventDieRoll { seed: 0, outcomes: &[
+                    DieOutcome { min: 1, max: 1, effects: &[Effect::GainGold(4)] },
+                    DieOutcome { min: 2, max: 2, effects: &[Effect::GainRandomRelic] },
+                    DieOutcome { min: 3, max: 3, effects: &[Effect::FullHeal] },
+                    DieOutcome { min: 4, max: 4, effects: &[Effect::GainRandomCurse] },
+                    DieOutcome { min: 5, max: 5, effects: &[Effect::PurgeFromDeck] },
+                    DieOutcome { min: 6, max: 6, effects: &[Effect::LoseHP(2)] },
+                ] }],
+                condition: None,
+            },
+        ],
+    },
+    EventInfo {
+        id: "BGLab",
+        name: "Lab",
+        options: &[
+            EventOptionInfo {
+                label: "Search",
+                effects: &[Effect::EventDieRoll { seed: 0, outcomes: &[
+                    DieOutcome { min: 1, max: 3, effects: &[Effect::GainRandomPotion] },
+                    DieOutcome { min: 4, max: 6, effects: &[Effect::GainRandomPotion, Effect::GainRandomPotion] },
+                ] }],
+                condition: None,
+            },
         ],
     },
 ];

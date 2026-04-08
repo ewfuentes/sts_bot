@@ -1042,7 +1042,15 @@ impl GameState {
                                     Some(crate::event_db::EventCondition::MinGold(g)) => self.gold >= g,
                                 }
                             }).map(|o| {
-                                (o.label.to_string(), o.effects.to_vec())
+                                let effects: Vec<Effect> = o.effects.iter().map(|e| {
+                                    match e {
+                                        Effect::EventDieRoll { outcomes, .. } => {
+                                            Effect::EventDieRoll { seed: node_seed, outcomes }
+                                        }
+                                        other => other.clone(),
+                                    }
+                                }).collect();
+                                (o.label.to_string(), effects)
                             }).collect();
                             Screen::ChoiceSelect {
                                 choices,
@@ -1793,6 +1801,27 @@ impl GameState {
                         cards,
                     });
                     return EffectResult::Paused;
+                }
+            }
+            Effect::EventDieRoll { seed, outcomes } => {
+                let mut rng = crate::rng::Rng::from_seed(*seed);
+                let roll = rng.roll_die(6);
+                for outcome in outcomes.iter() {
+                    if roll >= outcome.min && roll <= outcome.max {
+                        for effect in outcome.effects {
+                            self.effect_queue.push_back((effect.clone(), ResolvedTarget::NoTarget));
+                        }
+                        break;
+                    }
+                }
+            }
+            Effect::GainRandomPotion => {
+                if let Some(slot) = self.potions.iter().position(|p| p.is_none()) {
+                    if let Some(pools) = &mut self.reward_pools {
+                        if let Some(id) = pools.potion_deck.draw() {
+                            self.potions[slot] = Some(Potion { id: id.clone(), name: id });
+                        }
+                    }
                 }
             }
             Effect::UpgradeRandomCards => {
