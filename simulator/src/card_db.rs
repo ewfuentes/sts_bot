@@ -28,6 +28,16 @@ pub enum CardType {
     Curse,
 }
 
+/// Card rarity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CardRarity {
+    Basic,
+    #[default]
+    Common,
+    Uncommon,
+    Rare,
+}
+
 /// Condition that must be met for a card to be playable (beyond energy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayCondition {
@@ -50,6 +60,7 @@ pub struct CardInfo {
     pub id: &'static str,
     pub cost: i8,
     pub card_type: CardType,
+    pub rarity: CardRarity,
     pub target: CardTarget,
     pub effects: &'static [Effect],
     pub exhaust: bool,
@@ -81,6 +92,7 @@ impl CardInfo {
             id,
             cost,
             card_type,
+            rarity: CardRarity::Common,
             target,
             effects,
             exhaust: false,
@@ -95,6 +107,11 @@ impl CardInfo {
             upgraded_ethereal: None,
             upgraded_on_exhaust: None,
         }
+    }
+
+    const fn rarity(mut self, rarity: CardRarity) -> Self {
+        self.rarity = rarity;
+        self
     }
 
     const fn exhaust(mut self) -> Self {
@@ -217,11 +234,14 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
     let cards: Vec<CardInfo> = vec![
         // ── Starters ──
         CardInfo::new("BGStrike_R", 1, CardType::Attack, CardTarget::Enemy, &[Damage(1)])
+            .rarity(CardRarity::Basic)
             .upgraded_effects(&[Damage(2)]),
         CardInfo::new("BGDefend_R", 1, CardType::Skill, CardTarget::_Self, &[Block(1)])
+            .rarity(CardRarity::Basic)
             .upgraded_effects(&[Block(2)]),
         CardInfo::new("BGBash", 2, CardType::Attack, CardTarget::Enemy,
             &[Damage(2), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 }])
+            .rarity(CardRarity::Basic)
             .upgraded_effects(&[Damage(4), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 }]),
         // ── Verified attacks ──
         CardInfo::new("BGCleave", 1, CardType::Attack, CardTarget::AllEnemy, &[DamageAll(2)])
@@ -234,33 +254,39 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
         CardInfo::new("BGPommel Strike", 1, CardType::Attack, CardTarget::Enemy, &[Damage(2), Draw(1)])
             .upgraded_effects(&[Damage(2), Draw(2)]),
         CardInfo::new("BGBludgeon", 3, CardType::Attack, CardTarget::Enemy, &[Damage(7)])
+            .rarity(CardRarity::Rare)
             .upgraded_effects(&[Damage(10)]),
         CardInfo::new("BGUppercut", 2, CardType::Attack, CardTarget::Enemy, &[
                 Damage(3),
                 ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 1 },
                 ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 },
             ])
+            .rarity(CardRarity::Rare)
             .upgraded_effects(&[
                 Damage(3),
                 ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 },
                 ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 2 },
             ]),
         CardInfo::new("BGCarnage", 2, CardType::Attack, CardTarget::Enemy, &[Damage(4)])
+            .rarity(CardRarity::Uncommon)
             .ethereal()
             .upgraded_effects(&[Damage(6)]),
         CardInfo::new("BGBlood for Blood", 3, CardType::Attack, CardTarget::Enemy, &[Damage(4)])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[Damage(5)]),
         CardInfo::new("BGWild Strike", 1, CardType::Attack, CardTarget::Enemy,
             &[Damage(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])
             .upgraded_effects(&[Damage(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
         CardInfo::new("BGImmolate", 2, CardType::Attack, CardTarget::AllEnemy,
             &[DamageAll(5), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }])
+            .rarity(CardRarity::Rare)
             .upgraded_effects(&[DamageAll(7), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 2 }]),
         CardInfo::new("BGBody Slam", 1, CardType::Attack, CardTarget::Enemy,
             &[DamageBasedOn(DamageSource::CurrentBlock)])
             .upgraded_cost(0),
         CardInfo::new("BGRampage", 1, CardType::Attack, CardTarget::Enemy,
             &[DamageBasedOn(DamageSource::ExhaustPileSize)])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[
                 SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust },
                 DamageBasedOn(DamageSource::ExhaustPileSize),
@@ -269,6 +295,7 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .rebound()
             .upgraded_effects(&[Damage(2)]),
         CardInfo::new("BGClash", 0, CardType::Attack, CardTarget::Enemy, &[Damage(3)])
+            .rarity(CardRarity::Uncommon)
             .play_condition(PlayCondition::HandAllAttacks)
             .upgraded_effects(&[Damage(4)]),
         CardInfo::new("BGIron Wave", 1, CardType::Attack, CardTarget::Enemy, &[Damage(1), Block(1)])
@@ -278,6 +305,7 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             ])]),
         CardInfo::new("BGSever Soul", 2, CardType::Attack, CardTarget::Enemy,
             &[Damage(3), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[Damage(4), SelectFromHand { min: 1, max: 2, action: HandSelectAction::Exhaust }]),
         // ── Verified skills ──
         CardInfo::new("BGWarcry", 0, CardType::Skill, CardTarget::None,
@@ -285,47 +313,59 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .exhaust()
             .upgraded_effects(&[Draw(3), SelectFromHand { min: 1, max: 1, action: HandSelectAction::PutOnTopOfDraw }]),
         CardInfo::new("BGEntrench", 1, CardType::Skill, CardTarget::_Self, &[DoubleBlock])
+            .rarity(CardRarity::Uncommon)
             .exhaust()
             .upgraded_exhaust(false),
         CardInfo::new("BGLimit Break", 1, CardType::Skill, CardTarget::_Self, &[DoubleStrength])
+            .rarity(CardRarity::Rare)
             .exhaust()
             .upgraded_exhaust(false),
         CardInfo::new("BGRage", 1, CardType::Skill, CardTarget::_Self,
             &[ForEachInHand { filter: HandFilter::Attacks, per_card: &[Block(1)], exhaust_matched: false }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_cost(0),
         CardInfo::new("BGSecond Wind", 1, CardType::Skill, CardTarget::_Self,
             &[ForEachInHand { filter: HandFilter::NonAttacks, per_card: &[Block(1)], exhaust_matched: true }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[ForEachInHand { filter: HandFilter::NonAttacks, per_card: &[Block(2)], exhaust_matched: true }]),
         CardInfo::new("BGFiend Fire", 2, CardType::Attack, CardTarget::Enemy,
             &[ForEachInHand { filter: HandFilter::AllCards, per_card: &[Damage(1)], exhaust_matched: true }])
+            .rarity(CardRarity::Rare)
             .exhaust()
             .upgraded_effects(&[ForEachInHand { filter: HandFilter::AllCards, per_card: &[Damage(2)], exhaust_matched: true }]),
         CardInfo::new("BGHeadbutt", 1, CardType::Attack, CardTarget::Enemy,
             &[Damage(2), SelectFromDiscardToDrawTop])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[Damage(3), SelectFromDiscardToDrawTop]),
         CardInfo::new("BGPerfected Strike", 2, CardType::Attack, CardTarget::Enemy,
             &[DamageBasedOn(DamageSource::StrikesInHand { base: 3, per_strike: 1 })])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[DamageBasedOn(DamageSource::StrikesInHand { base: 3, per_strike: 2 })]),
         CardInfo::new("BGHeavy Blade", 2, CardType::Attack, CardTarget::Enemy,
             &[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 2 })])
             .upgraded_effects(&[DamageBasedOn(DamageSource::StrengthMultiplier { base: 3, multiplier: 4 })]),
         CardInfo::new("BGFlame Barrier", 2, CardType::Skill, CardTarget::_Self,
             &[Block(3), FlameBarrier(1)])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[Block(4), FlameBarrier(1)]),
         CardInfo::new("BGHavoc", 1, CardType::Skill, CardTarget::None, &[PlayTopOfDraw])
             .upgraded_cost(0),
         CardInfo::new("BGExhume", 1, CardType::Skill, CardTarget::None, &[SelectFromExhaustToHand])
+            .rarity(CardRarity::Rare)
             .exhaust()
             .upgraded_cost(0),
         CardInfo::new("BGFeed", 1, CardType::Attack, CardTarget::Enemy,
             &[Damage(3), StrengthIfTargetDead(1)])
+            .rarity(CardRarity::Rare)
             .exhaust()
             .upgraded_effects(&[Damage(3), StrengthIfTargetDead(2)]),
         CardInfo::new("BGWhirlwind", -1, CardType::Attack, CardTarget::AllEnemy,
             &[XCost { per_energy: &[DamageAll(1)], bonus: 0, card_type: CardType::Attack }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[XCost { per_energy: &[DamageAll(1)], bonus: 1, card_type: CardType::Attack }]),
         CardInfo::new("BGPower Through", 1, CardType::Skill, CardTarget::_Self,
             &[Block(3), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[Block(4), AddCardToPile { card_id: "Dazed", pile: Pile::Draw, count: 1 }]),
         CardInfo::new("BGShrug It Off", 1, CardType::Skill, CardTarget::_Self, &[Block(2), Draw(1)])
             .upgraded_effects(&[Block(3), Draw(1)]),
@@ -334,32 +374,39 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .upgraded_effects(&[Block(2), SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }]),
         CardInfo::new("BGBurning Pact", 1, CardType::Skill, CardTarget::None,
             &[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(2)])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[SelectFromHand { min: 1, max: 1, action: HandSelectAction::Exhaust }, Draw(3)]),
         CardInfo::new("BGBattle Trance", 0, CardType::Skill, CardTarget::_Self,
             &[Draw(3), ApplyPower { target: _Self, power_id: "NoDrawPower", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[Draw(4), ApplyPower { target: _Self, power_id: "NoDrawPower", amount: 1 }]),
         CardInfo::new("BGFlex", 0, CardType::Skill, CardTarget::_Self,
             &[GainTemporaryStrength(1)])
             .exhaust()
             .upgraded_exhaust(false),
         CardInfo::new("BGSentinel", 1, CardType::Skill, CardTarget::_Self, &[Block(2)])
+            .rarity(CardRarity::Uncommon)
             .on_exhaust(&[GainEnergy(2)])
             .upgraded_effects(&[Block(3)])
             .upgraded_on_exhaust(&[GainEnergy(3)]),
         CardInfo::new("BGGhostly Armor", 1, CardType::Skill, CardTarget::_Self, &[Block(2)])
+            .rarity(CardRarity::Uncommon)
             .ethereal()
             .upgraded_effects(&[Block(3)]),
         CardInfo::new("BGImpervious", 2, CardType::Skill, CardTarget::_Self, &[Block(6)])
+            .rarity(CardRarity::Rare)
             .exhaust()
             .upgraded_effects(&[Block(8)]),
         CardInfo::new("BGDisarm", 1, CardType::Skill, CardTarget::Enemy,
             &[ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 2 }])
+            .rarity(CardRarity::Uncommon)
             .exhaust()
             .upgraded_effects(&[ApplyPower { target: TargetEnemy, power_id: "BGWeakened", amount: 3 }]),
         CardInfo::new("BGShockwave", 2, CardType::Skill, CardTarget::AllEnemy, &[
                 ApplyPower { target: AllEnemies, power_id: "BGWeakened", amount: 1 },
                 ApplyPower { target: AllEnemies, power_id: "BGVulnerable", amount: 1 },
             ])
+            .rarity(CardRarity::Uncommon)
             .exhaust()
             .upgraded_effects(&[
                 ApplyPower { target: AllEnemies, power_id: "BGWeakened", amount: 2 },
@@ -369,57 +416,73 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
             .exhaust()
             .upgraded_cost(0),
         CardInfo::new("BGOffering", 0, CardType::Skill, CardTarget::_Self, &[LoseHP(1), GainEnergy(2), Draw(3)])
+            .rarity(CardRarity::Rare)
             .exhaust()
             .upgraded_effects(&[LoseHP(1), GainEnergy(2), Draw(5)]),
         CardInfo::new("BGRupture", 1, CardType::Skill, CardTarget::_Self,
             &[LoseHP(1), ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_cost(0),
         CardInfo::new("BGSpot Weakness", 1, CardType::Skill, CardTarget::_Self,
             &[ConditionalOnDieRoll { min: 1, max: 3, effects: &[
                 ApplyPower { target: _Self, power_id: "Strength", amount: 1 },
             ]}])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[ConditionalOnDieRoll { min: 1, max: 4, effects: &[
                 ApplyPower { target: _Self, power_id: "Strength", amount: 1 },
             ]}]),
         CardInfo::new("BGDouble Tap", 1, CardType::Skill, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGDoubleAttack", amount: 1 }])
+            .rarity(CardRarity::Rare)
             .upgraded_cost(0),
         // ── Verified powers (just ApplyPower, no side effects) ──
         CardInfo::new("BGInflame", 2, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "Strength", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_cost(1),
         CardInfo::new("BGMetallicize", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "Metallicize", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_cost(0),
         CardInfo::new("BGDemon Form", 3, CardType::Power, CardTarget::None,
             &[ApplyPower { target: _Self, power_id: "DemonForm", amount: 1 }])
+            .rarity(CardRarity::Rare)
             .upgraded_cost(2),
         CardInfo::new("BGBarricade", 2, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "Barricade", amount: 1 }])
+            .rarity(CardRarity::Rare)
             .upgraded_cost(1),
         CardInfo::new("BGBerserk", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGBerserk", amount: 1 }])
+            .rarity(CardRarity::Rare)
             .upgraded_effects(&[ApplyPower { target: _Self, power_id: "BGBerserk", amount: 2 }]),
         CardInfo::new("BGCombust", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGCombust", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[ApplyPower { target: _Self, power_id: "BGCombust", amount: 2 }]),
         CardInfo::new("BGCorruption", 3, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGCorruption", amount: 3 }])
+            .rarity(CardRarity::Rare)
             .upgraded_cost(2),
         CardInfo::new("BGDark Embrace", 2, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGDarkEmbrace", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_cost(1),
         CardInfo::new("BGEvolve", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "Evolve", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_cost(0),
         CardInfo::new("BGFeel No Pain", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "FeelNoPain", amount: 1 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_cost(0),
         CardInfo::new("BGJuggernaut", 2, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 1 }])
+            .rarity(CardRarity::Rare)
             .upgraded_effects(&[ApplyPower { target: _Self, power_id: "BGJuggernaut", amount: 2 }]),
         CardInfo::new("BGFire Breathing", 1, CardType::Power, CardTarget::_Self,
             &[ApplyPower { target: _Self, power_id: "FireBreathing", amount: 2 }])
+            .rarity(CardRarity::Uncommon)
             .upgraded_effects(&[ApplyPower { target: _Self, power_id: "FireBreathing", amount: 3 }]),
         // ── Status / Curse ──
         CardInfo::new("Dazed", -2, CardType::Status, CardTarget::None, &[])
