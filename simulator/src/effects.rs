@@ -1,3 +1,11 @@
+/// An outcome range for event die rolls.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DieOutcome {
+    pub min: u8,
+    pub max: u8,
+    pub effects: &'static [Effect],
+}
+
 /// What the damage amount is derived from at resolution time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DamageSource {
@@ -66,6 +74,10 @@ pub enum Effect {
     UpgradeRandomCards,
     /// Open a Grid screen to offer a card to the bonfire. Reward depends on rarity.
     BonfireOffer,
+    /// Roll 1d6 and queue effects based on the result. Seed is injected at event setup.
+    EventDieRoll { seed: u64, outcomes: &'static [DieOutcome] },
+    /// Gain a random potion from the potion pool into an empty slot.
+    GainRandomPotion,
     AddCardToPile {
         card_id: &'static str,
         pile: Pile,
