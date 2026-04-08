@@ -63,6 +63,13 @@ static ACT1_EVENTS: &[EventInfo] = &[
             EventOptionInfo { label: "Leave", effects: &[], condition: None },
         ],
     },
+    EventInfo {
+        id: "BGBonfire Elementals",
+        name: "Bonfire Elementals",
+        options: &[
+            EventOptionInfo { label: "Offer a Card", effects: &[Effect::BonfireOffer], condition: None },
+        ],
+    },
     // ── Medium events ──
     EventInfo {
         id: "BGLiving Wall",

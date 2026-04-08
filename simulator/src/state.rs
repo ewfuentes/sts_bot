@@ -641,6 +641,29 @@ impl GameState {
                             }
                             self.pop_screen();
                         }
+                        "bonfire" => {
+                            let card_type = card.card_type.clone();
+                            let rarity = card_db::lookup(&card.id)
+                                .map(|info| info.rarity)
+                                .unwrap_or(card_db::CardRarity::Common);
+                            if let Some(idx) = self.deck.iter().position(|c| c == card) {
+                                self.deck.remove(idx);
+                            }
+                            match rarity {
+                                card_db::CardRarity::Rare => {
+                                    self.effect_queue.push_back((Effect::FullHeal, ResolvedTarget::NoTarget));
+                                }
+                                card_db::CardRarity::Uncommon => {
+                                    self.effect_queue.push_back((Effect::Heal(3), ResolvedTarget::NoTarget));
+                                }
+                                _ if card_type == "CURSE" => {
+                                    self.effect_queue.push_back((Effect::LoseHP(1), ResolvedTarget::NoTarget));
+                                }
+                                _ => {}
+                            }
+                            self.pop_screen();
+                            self.drain_effect_queue();
+                        }
                         _ => {}
                     }
                 }
@@ -1761,6 +1784,16 @@ impl GameState {
             }
             Effect::FullHeal => {
                 self.hp = self.max_hp;
+            }
+            Effect::BonfireOffer => {
+                let cards = self.purgeable_cards();
+                if !cards.is_empty() {
+                    self.push_screen(Screen::Grid {
+                        purpose: "bonfire".to_string(),
+                        cards,
+                    });
+                    return EffectResult::Paused;
+                }
             }
             Effect::UpgradeRandomCards => {
                 let upgradeable: Vec<usize> = self.deck.iter()
