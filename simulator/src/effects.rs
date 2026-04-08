@@ -58,6 +58,14 @@ pub enum Effect {
     UpgradeStrike,
     /// Remove the first starter strike from the deck.
     RemoveStrike,
+    /// Open a Grid screen to transform a card from the deck (remove + random replacement).
+    TransformFromDeck,
+    /// Heal to full HP.
+    FullHeal,
+    /// Upgrade 1-2 random upgradeable cards in the deck.
+    UpgradeRandomCards,
+    /// Open a Grid screen to offer a card to the bonfire. Reward depends on rarity.
+    BonfireOffer,
     AddCardToPile {
         card_id: &'static str,
         pile: Pile,

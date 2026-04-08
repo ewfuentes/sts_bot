@@ -28,6 +28,16 @@ pub enum CardType {
     Curse,
 }
 
+/// Card rarity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CardRarity {
+    Basic,
+    #[default]
+    Common,
+    Uncommon,
+    Rare,
+}
+
 /// Condition that must be met for a card to be playable (beyond energy).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayCondition {
@@ -50,6 +60,7 @@ pub struct CardInfo {
     pub id: &'static str,
     pub cost: i8,
     pub card_type: CardType,
+    pub rarity: CardRarity,
     pub target: CardTarget,
     pub effects: &'static [Effect],
     pub exhaust: bool,
@@ -81,6 +92,7 @@ impl CardInfo {
             id,
             cost,
             card_type,
+            rarity: CardRarity::Common,
             target,
             effects,
             exhaust: false,
@@ -95,6 +107,11 @@ impl CardInfo {
             upgraded_ethereal: None,
             upgraded_on_exhaust: None,
         }
+    }
+
+    const fn rarity(mut self, rarity: CardRarity) -> Self {
+        self.rarity = rarity;
+        self
     }
 
     const fn exhaust(mut self) -> Self {
@@ -217,8 +234,10 @@ static CARD_DB: LazyLock<HashMap<&'static str, CardInfo>> = LazyLock::new(|| {
     let cards: Vec<CardInfo> = vec![
         // ── Starters ──
         CardInfo::new("BGStrike_R", 1, CardType::Attack, CardTarget::Enemy, &[Damage(1)])
+            .rarity(CardRarity::Basic)
             .upgraded_effects(&[Damage(2)]),
         CardInfo::new("BGDefend_R", 1, CardType::Skill, CardTarget::_Self, &[Block(1)])
+            .rarity(CardRarity::Basic)
             .upgraded_effects(&[Block(2)]),
         CardInfo::new("BGBash", 2, CardType::Attack, CardTarget::Enemy,
             &[Damage(2), ApplyPower { target: TargetEnemy, power_id: "BGVulnerable", amount: 1 }])
