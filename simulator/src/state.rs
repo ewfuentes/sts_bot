@@ -270,6 +270,13 @@ impl GameState {
             self.effect_queue.push_back((Effect::Draw(5), ResolvedTarget::NoTarget));
         }
 
+        // Start-of-combat relic triggers
+        for (effect, target) in crate::relic_db::collect_relic_triggered_effects(
+            power_db::Trigger::StartOfCombat, &self.relics,
+        ) {
+            self.effect_queue.push_back((effect, target));
+        }
+
         self.drain_effect_queue();
     }
 
@@ -307,7 +314,7 @@ impl GameState {
 
             if result.took_damage {
                 let triggered = power_db::collect_triggered_effects(
-                    power_db::PowerTrigger::MonsterOnDamaged,
+                    power_db::Trigger::MonsterOnDamaged,
                     &monsters[idx].powers,
                     target,
                 );
@@ -316,7 +323,7 @@ impl GameState {
 
             if matches!(kind, DamageKind::Attack) && result.took_damage {
                 let triggered = power_db::collect_triggered_effects(
-                    power_db::PowerTrigger::MonsterOnAttacked,
+                    power_db::Trigger::MonsterOnAttacked,
                     &monsters[idx].powers,
                     target,
                 );
@@ -327,7 +334,7 @@ impl GameState {
             // DeadPendingSummon monsters have their death triggers deferred to execute_monster_turns.
             if result.died && monsters[idx].state == MonsterState::Dead {
                 let triggered = power_db::collect_triggered_effects(
-                    power_db::PowerTrigger::MonsterOnDeath,
+                    power_db::Trigger::MonsterOnDeath,
                     &monsters[idx].powers,
                     target,
                 );
@@ -415,6 +422,10 @@ impl GameState {
                 rng.shuffle(items);
             });
         }
+    }
+
+    pub fn has_relic(&self, id: &str) -> bool {
+        self.relics.iter().any(|r| r.id == id)
     }
 
     /// Infer the character from starter relics.
@@ -777,8 +788,11 @@ impl GameState {
                 }
             }
             Action::Rest { .. } => {
-                // Heal 30% of max HP (rounded down), capped at max_hp
-                let heal = self.max_hp / 3;
+                // Board game: flat 3 HP heal at rest
+                let mut heal: u16 = 3;
+                if self.has_relic("BGRegal Pillow") {
+                    heal += 3;
+                }
                 self.hp = (self.hp + heal).min(self.max_hp);
                 self.set_screen(Screen::Complete);
             }
@@ -1116,7 +1130,7 @@ impl GameState {
 
                     // Fire card-type triggers (e.g. BGAnger on Skill, SharpHide on Attack)
                     let triggered = power_db::collect_all_triggered_effects(
-                        power_db::PowerTrigger::PlayerOnPlay { card_type: info.card_type },
+                        power_db::Trigger::PlayerOnPlay { card_type: info.card_type },
                         player_powers,
                         monsters,
                     );
@@ -1130,11 +1144,17 @@ impl GameState {
                 // 1. End-of-turn power triggers (Metallicize, BGCombust, etc.)
                 if let Screen::Combat { player_powers, monsters, .. } = self.current_screen_mut() {
                     let triggered = power_db::collect_all_triggered_effects(
-                        power_db::PowerTrigger::PlayerEndOfTurn,
+                        power_db::Trigger::PlayerEndOfTurn,
                         player_powers,
                         monsters,
                     );
                     queue_triggered(&mut self.effect_queue, triggered);
+                }
+                // End-of-turn relic triggers (Orichalcum, etc.)
+                for (effect, target) in crate::relic_db::collect_relic_triggered_effects(
+                    power_db::Trigger::PlayerEndOfTurn, &self.relics,
+                ) {
+                    self.effect_queue.push_back((effect, target));
                 }
 
                 // 2. Discard hand (ethereal → exhaust)
@@ -1198,7 +1218,7 @@ impl GameState {
                 // Queue start-of-turn power triggers (DemonForm, etc.)
                 if let Screen::Combat { player_powers, monsters, .. } = self.current_screen_mut() {
                     let triggered = power_db::collect_all_triggered_effects(
-                        power_db::PowerTrigger::PlayerStartOfTurn,
+                        power_db::Trigger::PlayerStartOfTurn,
                         player_powers,
                         monsters,
                     );
@@ -1468,10 +1488,6 @@ impl GameState {
             } else {
                 self.set_screen(Screen::GameOver { victory: false });
             }
-        } else if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
-            if !monsters.is_empty() && monsters.iter().all(|m| m.state == MonsterState::Dead) {
-                self.finish_combat();
-            }
         }
     }
 
@@ -1604,7 +1620,7 @@ impl GameState {
                     let gained = *player_block - before;
                     if gained > 0 {
                         let triggered = power_db::collect_triggered_effects(
-                            power_db::PowerTrigger::OnGainBlock,
+                            power_db::Trigger::OnGainBlock,
                             player_powers,
                             ResolvedTarget::Player,
                         );
@@ -1629,7 +1645,7 @@ impl GameState {
                     let gained = *player_block - before;
                     if gained > 0 {
                         let triggered = power_db::collect_triggered_effects(
-                            power_db::PowerTrigger::OnGainBlock,
+                            power_db::Trigger::OnGainBlock,
                             player_powers,
                             ResolvedTarget::Player,
                         );
@@ -1821,6 +1837,18 @@ impl GameState {
                         if let Some(id) = pools.potion_deck.draw() {
                             self.potions[slot] = Some(Potion { id: id.clone(), name: id });
                         }
+                    }
+                }
+            }
+            Effect::HealToMinHP(min_hp) => {
+                if self.hp < *min_hp {
+                    self.hp = (*min_hp).min(self.max_hp);
+                }
+            }
+            Effect::OrichalcumBlock => {
+                if let Some(Screen::Combat { player_block, .. }) = find_combat_in(&mut self.screen) {
+                    if *player_block == 0 {
+                        *player_block += 1;
                     }
                 }
             }
@@ -2110,7 +2138,7 @@ impl GameState {
 
                         if let Some(ct) = card_type {
                             let triggered = power_db::collect_triggered_effects(
-                                power_db::PowerTrigger::OnDraw { card_type: ct },
+                                power_db::Trigger::OnDraw { card_type: ct },
                                 player_powers,
                                 ResolvedTarget::Player,
                             );
@@ -2125,7 +2153,7 @@ impl GameState {
                     draw_pile.reverse();
 
                     let triggered = power_db::collect_triggered_effects(
-                        power_db::PowerTrigger::OnShuffle,
+                        power_db::Trigger::OnShuffle,
                         player_powers,
                         ResolvedTarget::Player,
                     );
@@ -2357,6 +2385,17 @@ impl GameState {
                 }
                 return EffectResult::Paused;
             }
+            Effect::CombatOver => {
+                // Queue end-of-combat relic effects
+                for (effect, target) in crate::relic_db::collect_relic_triggered_effects(
+                    power_db::Trigger::EndOfCombat, &self.relics,
+                ) {
+                    self.effect_queue.push_back((effect, target));
+                }
+                // Pop combat screen and push rewards — combat screen is gone
+                // so the finalization check won't re-trigger CombatOver.
+                self.finish_combat();
+            }
             Effect::Custom(_id) => {
                 // Not yet implemented
             }
@@ -2366,7 +2405,7 @@ impl GameState {
         if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
             if !monsters.is_empty() && monsters.iter().all(|m| m.state == MonsterState::Dead) {
                 self.effect_queue.clear();
-                return EffectResult::CombatOver;
+                self.effect_queue.push_back((Effect::CombatOver, ResolvedTarget::NoTarget));
             }
         }
 
@@ -2417,7 +2456,7 @@ impl GameState {
             for (i, monster) in monsters.iter().enumerate() {
                 if monster.state == MonsterState::DeadPendingSummon {
                     let triggered = power_db::collect_triggered_effects(
-                        power_db::PowerTrigger::MonsterOnDeath,
+                        power_db::Trigger::MonsterOnDeath,
                         &monster.powers,
                         ResolvedTarget::Monster(i as u8),
                     );
@@ -2489,7 +2528,7 @@ impl GameState {
 
                     // 3. Queue monster EndOfTurn power triggers (e.g., Ritual → Strength)
                     let triggered = power_db::collect_triggered_effects(
-                        power_db::PowerTrigger::MonsterEndOfTurn,
+                        power_db::Trigger::MonsterEndOfTurn,
                         &monster.powers,
                         ResolvedTarget::Monster(monster_idx),
                     );
@@ -3060,7 +3099,7 @@ fn apply_damage_to_monster(monster: &mut crate::types::Monster, damage: u16) -> 
     if died {
         let has_death_triggers = monster.powers.iter().any(|p| {
             power_db::lookup(&p.id)
-                .map(|info| info.triggers.iter().any(|te| te.trigger == power_db::PowerTrigger::MonsterOnDeath))
+                .map(|info| info.triggers.iter().any(|te| te.trigger == power_db::Trigger::MonsterOnDeath))
                 .unwrap_or(false)
         });
         if has_death_triggers {
@@ -3247,7 +3286,7 @@ fn exhaust_card(
     exhaust_pile.push(card);
 
     let triggered = power_db::collect_triggered_effects(
-        power_db::PowerTrigger::OnExhaust,
+        power_db::Trigger::OnExhaust,
         player_powers,
         ResolvedTarget::Player,
     );

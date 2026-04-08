@@ -20,7 +20,7 @@ fn make_rest_state(hp: u16, max_hp: u16, deck: Vec<(&str, bool)>) -> GameState {
 
 #[test]
 fn rest_available_actions() {
-    let state = make_rest_state(50, 80, vec![("BGStrike_R", false)]);
+    let state = make_rest_state(5, 10, vec![("BGStrike_R", false)]);
     let actions = state.available_actions();
     assert_eq!(actions.len(), 2);
     assert!(matches!(&actions[0], Action::Rest { choice_index: 0 }));
@@ -28,27 +28,26 @@ fn rest_available_actions() {
 }
 
 #[test]
-fn rest_heals_30_percent() {
-    let mut state = make_rest_state(50, 80, vec![("BGStrike_R", false)]);
+fn rest_heals_flat_3() {
+    let mut state = make_rest_state(5, 10, vec![("BGStrike_R", false)]);
     state.apply(&Action::Rest { choice_index: 0 });
 
-    // 80 / 3 = 26 (integer division), 50 + 26 = 76
-    assert_eq!(state.hp, 76);
+    assert_eq!(state.hp, 8);
     assert!(matches!(state.current_screen(), Screen::Complete));
 }
 
 #[test]
 fn rest_heal_capped_at_max_hp() {
-    let mut state = make_rest_state(75, 80, vec![("BGStrike_R", false)]);
+    let mut state = make_rest_state(9, 10, vec![("BGStrike_R", false)]);
     state.apply(&Action::Rest { choice_index: 0 });
 
-    // 80 / 3 = 26, 75 + 26 = 101 → capped at 80
-    assert_eq!(state.hp, 80);
+    // 9 + 3 = 12 → capped at 10
+    assert_eq!(state.hp, 10);
 }
 
 #[test]
 fn smith_opens_upgrade_grid() {
-    let mut state = make_rest_state(50, 80, vec![
+    let mut state = make_rest_state(5, 10, vec![
         ("BGStrike_R", false),
         ("BGBash", false),
         ("BGDefend_R", true),  // already upgraded
@@ -69,7 +68,7 @@ fn smith_opens_upgrade_grid() {
 
 #[test]
 fn smith_then_upgrade_card() {
-    let mut state = make_rest_state(50, 80, vec![
+    let mut state = make_rest_state(5, 10, vec![
         ("BGStrike_R", false),
         ("BGBash", false),
     ]);
