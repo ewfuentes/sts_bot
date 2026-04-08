@@ -63,6 +63,32 @@ static ACT1_EVENTS: &[EventInfo] = &[
             EventOptionInfo { label: "Leave", effects: &[], condition: None },
         ],
     },
+    // ── Medium events ──
+    EventInfo {
+        id: "BGLiving Wall",
+        name: "Living Wall",
+        options: &[
+            EventOptionInfo { label: "Forget (Purge)", effects: &[Effect::PurgeFromDeck], condition: None },
+            EventOptionInfo { label: "Change (Transform)", effects: &[Effect::TransformFromDeck], condition: None },
+            EventOptionInfo { label: "Grow (Upgrade)", effects: &[Effect::UpgradeFromDeck], condition: None },
+        ],
+    },
+    EventInfo {
+        id: "BGTransmorgrifier",
+        name: "Transmogrifier",
+        options: &[
+            EventOptionInfo { label: "Transform 1 Card", effects: &[Effect::TransformFromDeck], condition: None },
+            EventOptionInfo { label: "Tempt Fate (Transform 2 + Curse)", effects: &[Effect::TransformFromDeck, Effect::TransformFromDeck, Effect::GainRandomCurse], condition: None },
+        ],
+    },
+    EventInfo {
+        id: "BGUpgrade Shrine",
+        name: "Upgrade Shrine",
+        options: &[
+            EventOptionInfo { label: "Upgrade a Card", effects: &[Effect::UpgradeFromDeck], condition: None },
+            EventOptionInfo { label: "Gamble (2 dmg, upgrade 1-2 random)", effects: &[Effect::LoseHP(2), Effect::UpgradeRandomCards], condition: None },
+        ],
+    },
 ];
 
 pub fn lookup(id: &str) -> Option<&'static EventInfo> {
