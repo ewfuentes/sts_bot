@@ -50,6 +50,14 @@ static RELICS: &[RelicInfo] = &[
     },
     // ── End-of-combat relics ──
     RelicInfo {
+        id: "BoardGame:BurningBlood",
+        triggers: &[TriggeredEffect {
+            trigger: Trigger::EndOfCombat,
+            effects: &[Effect::Heal(1)],
+            front_effects: &[],
+        }],
+    },
+    RelicInfo {
         id: "BGBlack Blood",
         triggers: &[TriggeredEffect {
             trigger: Trigger::EndOfCombat,
