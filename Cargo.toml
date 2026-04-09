@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "simulator",
+    "tui",
+    "mcts",
+]
+resolver = "3"
