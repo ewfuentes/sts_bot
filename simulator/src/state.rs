@@ -1102,7 +1102,7 @@ impl GameState {
                     let hc = hand.remove(hand_idx);
                     let cost_override = hc.cost_override;
                     let card = hc.card;
-                    let info = card_db::lookup(&card.id).expect("card not found in card_db");
+                    let info = card_db::lookup(&card.id).unwrap_or_else(|| panic!("card not found in card_db: {}", card.id));
 
                     // Deduct energy (with cost modification from powers like Corruption)
                     let base_cost = cost_override.unwrap_or_else(|| info.effective_cost(card.upgraded));
@@ -2630,13 +2630,9 @@ impl GameState {
 
         if let Some(pools) = &mut self.reward_pools {
             // 5 cards for sale
-            for price in [2, 2, 3, 3, 3] {
-                if let Some(id) = pools.card_deck.draw() {
-                    cards.push(ShopCard {
-                        card: Card { id: id.clone(), name: id, cost: 0, card_type: "UNKNOWN".to_string(), upgraded: false },
-                        price: Some(price),
-                    });
-                }
+            let shop_cards = pools.draw_card_reward(5);
+            for (card, price) in shop_cards.into_iter().zip([2, 2, 3, 3, 3]) {
+                cards.push(ShopCard { card, price: Some(price) });
             }
             // 3 relics
             for price in [7, 7, 8] {
