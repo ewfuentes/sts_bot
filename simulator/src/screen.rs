@@ -150,6 +150,21 @@ pub enum Screen {
 }
 
 impl Screen {
+    /// Create a Map screen from a map and a starting node index.
+    /// Computes available_nodes from the start node's edges.
+    pub fn new_map(map: &crate::map::ActMap, start_node: usize) -> Self {
+        let start = &map.nodes[start_node];
+        let available_nodes = vec![MapChoice {
+            label: format!("{:?} ({},{})", start.kind, start.x, start.y),
+            kind: start.kind,
+            node_index: start_node,
+        }];
+        Screen::Map {
+            current_node: start_node,
+            available_nodes,
+        }
+    }
+
     pub fn new_combat(encounter: impl Into<String>, seed: u64) -> Self {
         Screen::Combat {
             encounter: encounter.into(),

@@ -232,6 +232,62 @@ impl GameState {
         Ok(state)
     }
 
+    /// Create a new Act 1 Ironclad game from a seed.
+    pub fn new_ironclad_game(seed: u64) -> Self {
+        use crate::dungeon::generate_act1_map;
+
+        let mut rng = crate::rng::Rng::from_seed(seed);
+        let (map, start_node) = generate_act1_map(&mut rng);
+
+        fn card(id: &str, cost: i8, card_type: &str) -> Card {
+            Card { id: id.to_string(), name: id.to_string(), cost, card_type: card_type.to_string(), upgraded: false }
+        }
+
+        let deck = vec![
+            card("BGStrike_R", 1, "ATTACK"),
+            card("BGStrike_R", 1, "ATTACK"),
+            card("BGStrike_R", 1, "ATTACK"),
+            card("BGStrike_R", 1, "ATTACK"),
+            card("BGStrike_R", 1, "ATTACK"),
+            card("BGDefend_R", 1, "SKILL"),
+            card("BGDefend_R", 1, "SKILL"),
+            card("BGDefend_R", 1, "SKILL"),
+            card("BGDefend_R", 1, "SKILL"),
+            card("BGBash", 2, "ATTACK"),
+        ];
+
+        let relics = vec![Relic {
+            id: "BoardGame:BurningBlood".to_string(),
+            name: "Burning Blood".to_string(),
+            counter: -1,
+            clickable: false,
+            pulsing: false,
+        }];
+
+        let mut state = GameState {
+            hp: 8,
+            max_hp: 8,
+            gold: 5,
+            floor: 0,
+            act: 1,
+            ascension: 0,
+            deck,
+            relics,
+            potions: vec![None, None],
+            screen: vec![Screen::new_map(&map, start_node)],
+            map: Some(map),
+            actions: vec![],
+            reward_pools: None,
+            effect_queue: std::collections::VecDeque::new(),
+        };
+
+        state.reward_pools = Some(RewardPools::new(
+            reward_deck::Character::Ironclad, seed,
+        ));
+        state.determinize(seed);
+        state
+    }
+
     /// Apply pre-battle starting effects for all monsters in combat.
     /// Call this after monsters are populated and before the player's first action.
     /// Initialize combat: copy deck into draw pile, shuffle, set energy, draw opening hand.
