@@ -10,8 +10,6 @@ pub const IRONCLAD_COMMONS: &[&str] = &[
     "BGHavoc",
     "BGHeavy Blade",
     "BGIron Wave",
-    "BGIronWaveShield",
-    "BGIronWaveSpear",
     "BGPommel Strike",
     "BGSeeing Red",
     "BGShrug It Off",
