@@ -155,9 +155,9 @@ fn damage_kills_last_monster_transitions_to_rewards() {
 
     state.apply(&play_action("BGBludgeon", 3, "ATTACK", 0, Some(0)));
 
-    // Killing the last monster should transition to combat rewards
-    assert!(matches!(state.current_screen(), Screen::CombatRewards { .. }),
-        "Expected CombatRewards, got {:?}", state.current_screen());
+    // Killing the last monster without a map transitions to GameOver (victory)
+    assert!(matches!(state.current_screen(), Screen::GameOver { victory: true }),
+        "Expected GameOver(victory), got {:?}", state.current_screen());
 }
 
 #[test]
@@ -515,8 +515,8 @@ fn immolate_damages_all_and_adds_two_dazed() {
         assert_eq!(draw_pile.len(), 2);
         assert!(draw_pile.iter().all(|c| c.id == "Dazed"));
     } else {
-        // Both monsters dead — should transition to rewards
-        assert!(matches!(state.current_screen(), Screen::CombatRewards { .. }));
+        // Both monsters dead, no map — transitions to GameOver
+        assert!(matches!(state.current_screen(), Screen::GameOver { victory: true }));
     }
 }
 
@@ -2181,8 +2181,8 @@ fn feed_upgraded_gains_two_strength_on_kill() {
         let strength = player_powers.iter().find(|p| p.id == "Strength").unwrap();
         assert_eq!(strength.amount, 2);
     } else {
-        // Monster died, might transition to rewards
-        assert!(matches!(state.current_screen(), Screen::CombatRewards { .. }));
+        // Monster died, transitions to GameOver without a map
+        assert!(matches!(state.current_screen(), Screen::GameOver { victory: true }));
     }
 }
 
