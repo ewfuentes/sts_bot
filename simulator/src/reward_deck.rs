@@ -172,8 +172,8 @@ mod tests {
     #[test]
     fn ironclad_reward_deck_size() {
         let deck = RewardDeck::new(Character::Ironclad, 42);
-        // 2 golden tickets + 17 commons * 2 + 28 uncommons = 2 + 34 + 28 = 64
-        assert_eq!(deck.len(), 64);
+        // 2 golden tickets + 15 commons * 2 + 28 uncommons = 2 + 30 + 28 = 60
+        assert_eq!(deck.len(), 60);
     }
 
     #[test]
