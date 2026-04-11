@@ -794,7 +794,7 @@ impl GameState {
                     heal += 3;
                 }
                 self.hp = (self.hp + heal).min(self.max_hp);
-                self.set_screen(Screen::Complete);
+                self.pop_screen();
             }
             Action::Smith { .. } => {
                 // Open grid screen to upgrade a card
@@ -858,7 +858,7 @@ impl GameState {
                 }
             }
             Action::LeaveShop => {
-                self.set_screen(Screen::Complete);
+                self.pop_screen();
             }
             Action::PickBossRelic { choice_index, .. } => {
                 if let Screen::BossRelic { relics, .. } = self.current_screen() {
@@ -907,7 +907,7 @@ impl GameState {
                         });
                     }
                 }
-                self.set_screen(Screen::Complete);
+                self.pop_screen();
             }
             Action::TravelTo { kind, choice_index, .. } => {
                 self.floor += 1;
@@ -1457,7 +1457,7 @@ impl GameState {
             let mut new_rewards = rewards.clone();
             new_rewards.remove(idx);
             if new_rewards.is_empty() {
-                self.set_screen(Screen::Complete);
+                self.pop_screen();
             } else {
                 self.set_screen(Screen::CombatRewards { rewards: new_rewards });
             }
