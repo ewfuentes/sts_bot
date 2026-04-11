@@ -467,6 +467,12 @@ impl GameState {
         } else {
             self.set_screen(Screen::Complete);
         }
+        // If we've returned to a Map with no available nodes, the act is over
+        if let Screen::Map { available_nodes, .. } = self.current_screen() {
+            if available_nodes.is_empty() {
+                self.set_screen(Screen::GameOver { victory: true });
+            }
+        }
     }
 
     /// Determinize all unordered pools by shuffling with the given seed.
@@ -2608,6 +2614,11 @@ impl GameState {
             let encounter = encounter.clone();
             let rewards = self.generate_combat_rewards(&encounter);
             self.pop_screen();
+            // If there's no map underneath (combat-only), victory
+            if matches!(self.current_screen(), Screen::Complete) {
+                self.set_screen(Screen::GameOver { victory: true });
+                return;
+            }
             if encounter.contains("BOSS") {
                 let boss_relic_screen = self.generate_boss_relic_screen();
                 self.push_screen(boss_relic_screen);
