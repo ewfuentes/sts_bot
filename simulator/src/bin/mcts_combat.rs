@@ -5,69 +5,9 @@ use mcts::GameState as MctsGameState;
 use rand::SeedableRng;
 use rayon::prelude::*;
 use sts_simulator::{
-    GameState as StsGameState, Monster, MonsterState, Screen,
-    encounter_db, monster_db,
-    mcts_adapter::{StsState, StsRandomEvaluator},
+    MonsterState, Screen,
+    mcts_adapter::{self, StsState, StsRandomEvaluator},
 };
-
-fn make_combat(seed: u64, encounter_id: &str) -> StsGameState {
-    let json = serde_json::json!({
-        "hp": 8, "max_hp": 8, "gold": 5, "floor": 1, "act": 1, "ascension": 0,
-        "deck": [
-            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
-            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
-            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
-            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
-            {"id": "BGStrike_R", "name": "Strike", "cost": 1, "type": "ATTACK", "upgraded": false},
-            {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
-            {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
-            {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
-            {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
-            {"id": "BGBash", "name": "Bash", "cost": 2, "type": "ATTACK", "upgraded": false},
-        ],
-        "relics": [
-            {"id": "BoardGame:BurningBlood", "name": "Burning Blood", "counter": -1},
-        ],
-        "potions": [null, null],
-        "screen": {
-            "type": "combat",
-            "encounter": encounter_id,
-        }
-    });
-
-    let mut state = StsGameState::from_json(&json.to_string()).unwrap();
-
-    // Populate monsters from encounter_db
-    if let Some(enc) = encounter_db::lookup(encounter_id) {
-        if let Screen::Combat { monsters, .. } = state.current_screen_mut() {
-            for em in enc.monsters {
-                monsters.push(Monster {
-                    id: em.id.to_string(),
-                    name: em.id.to_string(),
-                    hp: em.hp,
-                    max_hp: em.hp,
-                    block: 0,
-                    intent: "UNKNOWN".to_string(),
-                    damage: None,
-                    hits: 1,
-                    powers: vec![],
-                    state: MonsterState::Alive,
-                    move_index: em.move_index,
-                    pattern: monster_db::MovePattern::default(),
-                });
-            }
-        }
-    }
-
-    // Seed the combat RNG so different seeds produce different games
-    if let Screen::Combat { rng, .. } = state.current_screen_mut() {
-        *rng = sts_simulator::Rng::from_seed(seed);
-    }
-    state.determinize(seed);
-    state.start_combat();
-    state.apply_monster_starting_effects();
-    state
-}
 
 fn main() {
     let encounter = std::env::args()
@@ -84,7 +24,7 @@ fn main() {
 
     println!("MCTS combat vs {} ({} iterations, seed {})", encounter, num_iterations, seed);
 
-    let inner_state = make_combat(seed, &encounter);
+    let inner_state = mcts_adapter::make_combat_state(seed, &encounter);
     let state = StsState::new(inner_state);
 
     // Show initial state

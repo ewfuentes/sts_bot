@@ -72,7 +72,10 @@ pub struct MctsNode<S: GameState> {
 
 impl<S: GameState> MctsNode<S> {
     fn ucb_value(&self, parent_visits: u32, exploration_constant: f64) -> f64 {
-        self.total_value / (self.visits as f64) + 
+        if self.visits == 0 {
+            return f64::INFINITY;
+        }
+        self.total_value / (self.visits as f64) +
            exploration_constant * ((parent_visits as f64).sqrt() / (self.visits as f64)).sqrt()
     }
 }
@@ -129,7 +132,7 @@ impl<S: GameState> MctsTree<S> {
         child_idx
     }
 
-    fn backprop(&mut self, leaf_idx: usize, leaf_value:f64) {
+    pub fn backprop(&mut self, leaf_idx: usize, leaf_value:f64) {
         let mut maybe_curr_idx = Some(leaf_idx);
 
         while let Some(curr_idx) = maybe_curr_idx {
@@ -160,6 +163,38 @@ impl<S: GameState> MctsTree<S> {
                 node.action.clone().map(|a| (a, node.visits))
             })
             .collect()
+    }
+
+    /// Select a leaf via UCB, expand one child if possible.
+    /// Returns the leaf node index. Does NOT evaluate or backprop.
+    /// If the selected node is terminal, returns it as-is (caller should
+    /// check `is_terminal()` and backprop `terminal_value()` directly).
+    pub fn select_and_expand(&mut self, exploration_constant: f64) -> usize {
+        let (node_idx, maybe_action) = self.select_leaf(exploration_constant);
+        if let Some(action) = maybe_action {
+            self.add_child(node_idx, action)
+        } else {
+            node_idx
+        }
+    }
+
+    /// UCB tree descent. Returns (node_index, action_to_expand_or_None).
+    fn select_leaf(&self, exploration_constant: f64) -> (usize, Option<S::Action>) {
+        let mut curr_idx = self.root();
+        let mut curr_node = &self.nodes[curr_idx];
+        while curr_node.unexpanded_actions.is_empty() && !curr_node.state.is_terminal() {
+            let best_child_idx = curr_node.children.iter().max_by(|&&idx_1, &&idx_2| {
+                let child_1_value = &self.nodes[idx_1].ucb_value(curr_node.visits, exploration_constant);
+                let child_2_value = &self.nodes[idx_2].ucb_value(curr_node.visits, exploration_constant);
+                child_1_value.partial_cmp(&child_2_value).unwrap()
+            }).unwrap();
+
+            curr_idx = *best_child_idx;
+            curr_node = &self.nodes[curr_idx];
+        }
+
+        (curr_idx,
+            if curr_node.state.is_terminal() { None } else { Some(curr_node.unexpanded_actions.first().unwrap().clone()) })
     }
 
     /// Advance the tree to the child matching the given action.
@@ -232,52 +267,17 @@ impl Default for MctsConfig {
     }
 }
 
-fn select_next_action<S: GameState> (
-    tree: &MctsTree<S>,
-    exploration_constant: f64,
-) -> (usize, Option<S::Action>) {
-
-    let mut curr_idx = tree.root();
-    let mut curr_node = &tree.nodes[curr_idx];
-    while curr_node.unexpanded_actions.is_empty() && !curr_node.state.is_terminal() {
-        let best_child_idx = curr_node.children.iter().max_by(|&&idx_1, &&idx_2| {
-            let child_1_value = &tree.nodes[idx_1].ucb_value(curr_node.visits, exploration_constant);
-            let child_2_value = &tree.nodes[idx_2].ucb_value(curr_node.visits, exploration_constant);
-            child_1_value.partial_cmp(&child_2_value).unwrap()
-        }).unwrap();
-
-        curr_idx = *best_child_idx;
-        curr_node = &tree.nodes[curr_idx];
-    }
-
-    (curr_idx, 
-        if curr_node.state.is_terminal() { None } else {Some(curr_node.unexpanded_actions.first().unwrap().clone())})
-}
-
 pub fn search<S: GameState>(
     config: &MctsConfig,
     state: &S,
     evaluator: &impl Evaluator<S>,
     rng: &mut impl rand::Rng,
 ) -> MctsTree<S> {
-    // Create a new game tree
     let mut tree = MctsTree::<S>::new(state.clone());
     for _iter in 0..config.num_iterations {
-        // Select leaf node
-        let (leaf_idx, maybe_action) = select_next_action(&tree, config.exploration_constant);
-
-        // maybe expand the tree
-        let new_leaf_idx = if let Some(action) = maybe_action {
-            tree.add_child(leaf_idx, action)
-        } else {
-            leaf_idx
-        };
-
-        // Compute the leaf value
-        let leaf_value = evaluator.evaluate(&tree.nodes[new_leaf_idx].state, rng);
-
-        // backprop the value
-        tree.backprop(new_leaf_idx, leaf_value)
+        let leaf_idx = tree.select_and_expand(config.exploration_constant);
+        let leaf_value = evaluator.evaluate(&tree.nodes[leaf_idx].state, rng);
+        tree.backprop(leaf_idx, leaf_value);
     }
     tree
 }
