@@ -158,48 +158,29 @@ impl MctsWorker {
     /// Terminal leaves are backpropped immediately in Rust.
     /// Returns non-terminal leaf states (1:1 with internal pending_leaves).
     fn select_leaves(&mut self) -> Vec<PyGameState> {
-        use rayon::prelude::*;
-
         self.pending_leaves.clear();
-
-        let exploration_constant = self.exploration_constant;
-
-        // Each session produces a vec of (root_idx, leaf_idx, Option<GameState>)
-        // where the Option is Some for non-terminal leaves needing NN eval.
-        let per_session: Vec<Vec<(usize, usize, Option<crate::state::GameState>)>> = self
-            .sessions
-            .par_iter_mut()
-            .map(|session| {
-                if session.result.is_some() {
-                    return Vec::new();
-                }
-                let mut results = Vec::new();
-                for (root_idx, tree) in session.roots.iter_mut().enumerate() {
-                    let leaf_idx = tree.select_and_expand(exploration_constant);
-                    let leaf_node = &tree.nodes[leaf_idx];
-
-                    if leaf_node.state.is_terminal() {
-                        let val = leaf_node.state.terminal_value();
-                        tree.backprop(leaf_idx, val);
-                    } else {
-                        results.push((root_idx, leaf_idx, Some(leaf_node.state.inner.clone())));
-                    }
-                }
-                results
-            })
-            .collect();
-
-        // Flatten into pending_leaves + leaf_states (sequential, but tiny)
         let mut leaf_states = Vec::new();
-        for (game_idx, session_results) in per_session.into_iter().enumerate() {
-            for (root_idx, leaf_node_idx, state_opt) in session_results {
-                if let Some(inner) = state_opt {
+
+        for (game_idx, session) in self.sessions.iter_mut().enumerate() {
+            if session.result.is_some() {
+                continue;
+            }
+            for (root_idx, tree) in session.roots.iter_mut().enumerate() {
+                let leaf_idx = tree.select_and_expand(self.exploration_constant);
+                let leaf_node = &tree.nodes[leaf_idx];
+
+                if leaf_node.state.is_terminal() {
+                    let val = leaf_node.state.terminal_value();
+                    tree.backprop(leaf_idx, val);
+                } else {
                     self.pending_leaves.push(PendingLeaf {
                         game_idx,
                         root_idx,
-                        leaf_node_idx,
+                        leaf_node_idx: leaf_idx,
                     });
-                    leaf_states.push(PyGameState { inner });
+                    leaf_states.push(PyGameState {
+                        inner: leaf_node.state.inner.clone(),
+                    });
                 }
             }
         }
@@ -226,87 +207,73 @@ impl MctsWorker {
     /// Aggregate visits, pick best action, apply it, rebuild trees.
     /// Returns a list of dicts with info about each stepped game.
     fn step_games<'py>(&mut self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        use rayon::prelude::*;
         use std::collections::HashMap;
 
-        let num_roots = self.num_roots;
-        let max_steps = self.max_steps;
-
-        // Do all heavy work in parallel: aggregate, apply, rebuild trees
-        let step_results: Vec<Option<(String, u32, bool)>> = self
-            .sessions
-            .par_iter_mut()
-            .map(|session| {
-                if session.result.is_some() {
-                    return None;
-                }
-
-                // Aggregate visit counts across all roots
-                let mut aggregated: HashMap<String, (u32, Action)> = HashMap::new();
-                for tree in &session.roots {
-                    for (action, visits) in tree.root_action_visits() {
-                        let key = format!("{:?}", action);
-                        let entry = aggregated.entry(key).or_insert((0, action.clone()));
-                        entry.0 += visits;
-                    }
-                }
-
-                // Pick best action by total visits
-                let (_, (visits, best_action)) = aggregated
-                    .iter()
-                    .max_by_key(|(_, (v, _))| *v)
-                    .expect("no actions aggregated");
-                let best_action = best_action.clone();
-                let best_visits = *visits;
-
-                // Record (state, action) in trajectory
-                if let Some(last) = session.trajectory.last_mut() {
-                    last.1 = Some(best_action.clone());
-                }
-
-                // Apply action to base state
-                session.base_state.inner.apply(&best_action);
-
-                // Check terminal or step limit
-                let finished = if session.base_state.is_terminal() {
-                    let val = session.base_state.terminal_value();
-                    session.result = Some(val);
-                    session.trajectory.push((session.base_state.inner.clone(), None));
-                    true
-                } else if session.turn >= max_steps {
-                    // Timed out — treat as defeat at current floor
-                    let floor = session.base_state.inner.floor as f64;
-                    let progress = (floor / 13.0).min(0.99) * 0.5;
-                    session.result = Some(progress);
-                    session.trajectory.push((session.base_state.inner.clone(), None));
-                    true
-                } else {
-                    session.trajectory.push((session.base_state.inner.clone(), None));
-                    session.turn += 1;
-                    session.roots = GameSession::build_trees(
-                        &session.base_state,
-                        num_roots,
-                        session.seed,
-                        session.turn,
-                    );
-                    false
-                };
-
-                let action_json = serde_json::to_string(&best_action).unwrap();
-                Some((action_json, best_visits, finished))
-            })
-            .collect();
-
-        // Build Python dicts (must be sequential — needs GIL)
         let mut results = Vec::new();
-        for step_result in step_results {
-            if let Some((action_json, visits, finished)) = step_result {
-                let dict = PyDict::new(py);
-                dict.set_item("action", action_json)?;
-                dict.set_item("visits", visits)?;
-                dict.set_item("finished", finished)?;
-                results.push(dict);
+
+        for session in self.sessions.iter_mut() {
+            if session.result.is_some() {
+                continue;
             }
+
+            // Aggregate visit counts across all roots
+            let mut aggregated: HashMap<String, (u32, Action)> = HashMap::new();
+            for tree in &session.roots {
+                for (action, visits) in tree.root_action_visits() {
+                    let key = format!("{:?}", action);
+                    let entry = aggregated.entry(key).or_insert((0, action.clone()));
+                    entry.0 += visits;
+                }
+            }
+
+            // Pick best action by total visits
+            let (_, (visits, best_action)) = aggregated
+                .iter()
+                .max_by_key(|(_, (v, _))| *v)
+                .expect("no actions aggregated");
+            let best_action = best_action.clone();
+            let best_visits = *visits;
+
+            // Record (state, action) in trajectory
+            if let Some(last) = session.trajectory.last_mut() {
+                last.1 = Some(best_action.clone());
+            }
+
+            // Apply action to base state
+            session.base_state.inner.apply(&best_action);
+
+            // Check terminal or step limit
+            let finished = if session.base_state.is_terminal() {
+                let val = session.base_state.terminal_value();
+                session.result = Some(val);
+                session.trajectory.push((session.base_state.inner.clone(), None));
+                true
+            } else if session.turn >= self.max_steps {
+                // Timed out — treat as defeat at current floor
+                let floor = session.base_state.inner.floor as f64;
+                let progress = (floor / 13.0).min(0.99) * 0.5;
+                session.result = Some(progress);
+                session.trajectory.push((session.base_state.inner.clone(), None));
+                true
+            } else {
+                session.trajectory.push((session.base_state.inner.clone(), None));
+                session.turn += 1;
+                session.roots = GameSession::build_trees(
+                    &session.base_state,
+                    self.num_roots,
+                    session.seed,
+                    session.turn,
+                );
+                false
+            };
+
+            let dict = PyDict::new(py);
+            let action_json = serde_json::to_string(&best_action)
+                .map_err(|e| PyValueError::new_err(format!("Serialization error: {e}")))?;
+            dict.set_item("action", action_json)?;
+            dict.set_item("visits", best_visits)?;
+            dict.set_item("finished", finished)?;
+            results.push(dict);
         }
 
         Ok(results)
