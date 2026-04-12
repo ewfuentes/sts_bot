@@ -165,6 +165,56 @@ impl Screen {
         }
     }
 
+    /// Serialize this screen to a JSON value for training/summary use.
+    /// Unlike serde Serialize, this handles all variants including those
+    /// with non-serializable Effect fields.
+    pub fn to_summary_json(&self) -> serde_json::Value {
+        match self {
+            Screen::XCostSelect { bonus, card_type, target, max_energy, .. } => {
+                serde_json::json!({
+                    "type": "x_cost_select",
+                    "bonus": bonus,
+                    "card_type": format!("{:?}", card_type),
+                    "target": target,
+                    "max_energy": max_energy,
+                })
+            }
+            Screen::AutoPlaySelect { cards } => {
+                serde_json::json!({
+                    "type": "auto_play_select",
+                    "cards": cards,
+                })
+            }
+            Screen::TargetSelect { reason, .. } => {
+                serde_json::json!({
+                    "type": "target_select",
+                    "reason": reason,
+                })
+            }
+            Screen::ChoiceSelect { choices, target_index } => {
+                let labels: Vec<&str> = choices.iter().map(|(l, _)| l.as_str()).collect();
+                serde_json::json!({
+                    "type": "choice_select",
+                    "choices": labels,
+                    "target_index": target_index,
+                })
+            }
+            Screen::HandSelect { min_cards, max_cards, cards, picked_indices, .. } => {
+                serde_json::json!({
+                    "type": "hand_select",
+                    "min_cards": min_cards,
+                    "max_cards": max_cards,
+                    "cards": cards,
+                    "picked_indices": picked_indices,
+                })
+            }
+            // All other variants serialize fine with serde
+            other => serde_json::to_value(other).unwrap_or_else(|e| {
+                serde_json::json!({"type": "unknown", "error": e.to_string()})
+            }),
+        }
+    }
+
     pub fn new_combat(encounter: impl Into<String>, seed: u64) -> Self {
         Screen::Combat {
             encounter: encounter.into(),

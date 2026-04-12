@@ -1,0 +1,13 @@
+[project]
+name = "sts-bot"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "sts-training",
+]
+
+[tool.uv.sources]
+sts-training = { workspace = true }
+
+[tool.uv.workspace]
+members = ["simulator", "training"]

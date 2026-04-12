@@ -7,8 +7,13 @@ glue/__pycache__/
 *.pyc
 
 # Rust
+target/
 simulator/target/
 tui/target/
+
+# Training
+checkpoints/
+*.pt
 
 # Logs
 glue/commod_bridge.log
