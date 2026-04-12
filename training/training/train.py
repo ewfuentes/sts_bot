@@ -14,6 +14,28 @@ from .replay_buffer import ReplayBuffer
 import tqdm
 
 
+def compute_targets(
+    states: list, actions: list, game_results: list,
+) -> list[float]:
+    """Map raw game results to training target values.
+
+    Victory = 1.0, defeat = floor / 13 * 0.5 (so defeat < victory always).
+    Each game's target is repeated for every trajectory step in that game.
+    """
+    targets = []
+    result_idx = 0
+    for i in range(len(states)):
+        r = game_results[result_idx]
+        if r["victory"]:
+            targets.append(1.0)
+        else:
+            targets.append(r["floor"] / 13.0 * 0.5)
+        # Advance to next game result at trajectory boundary
+        if actions[i] is None and result_idx + 1 < len(game_results):
+            result_idx += 1
+    return targets
+
+
 def self_play_epoch(
     worker: MctsWorker,
     value_net: ValueNet,
@@ -84,30 +106,28 @@ def main():
             max_steps=args.max_steps,
         )
 
-        states, actions, outcomes = self_play_epoch(
+        states, actions, game_results = self_play_epoch(
             worker, value_net, device, args.iterations_per_step, args.num_games
         )
+
+        # Compute training targets from raw game results.
+        # Each game result applies to all trajectory steps in that game.
+        targets = compute_targets(states, actions, game_results)
 
         # Add to replay buffer
         if states:
             features = batch_featurize(states)
-            values = torch.tensor(outcomes, dtype=torch.float32)
+            values = torch.tensor(targets, dtype=torch.float32)
             replay_buffer.add_batch(features, values)
 
-        # Per-game stats: outcomes list repeats the terminal value for each
-        # trajectory step. Extract one value per game by looking at boundaries.
-        if outcomes:
-            game_values = [outcomes[0]]
-            for i in range(1, len(outcomes)):
-                # New game starts when we see a different value, or when the
-                # same value appears after a state whose action is None (terminal)
-                if actions[i - 1] is None and i < len(outcomes):
-                    game_values.append(outcomes[i])
-            wins = sum(1 for v in game_values if v >= 1.0)
-            avg_outcome = sum(game_values) / len(game_values)
-            print(f"  games={len(game_values)}, wins={wins}/{len(game_values)}, "
-                  f"avg_outcome={avg_outcome:.3f}, "
-                  f"outcomes={[round(v, 3) for v in game_values]}")
+        # Per-game stats
+        if game_results:
+            wins = sum(1 for r in game_results if r["victory"])
+            timed_out = sum(1 for r in game_results if r["timed_out"])
+            avg_floor = sum(r["floor"] for r in game_results) / len(game_results)
+            print(f"  games={len(game_results)}, wins={wins}/{len(game_results)}, "
+                  f"timed_out={timed_out}, avg_floor={avg_floor:.1f}, "
+                  f"floors={[r['floor'] for r in game_results]}")
 
         selfplay_time = time.time() - t0
 

@@ -4,6 +4,7 @@ use pyo3::types::PyDict;
 
 use crate::action::Action;
 use crate::mcts_adapter::{StsState, make_combat_state};
+use crate::screen::Screen;
 use crate::state::GameState;
 
 use mcts::{GameState as MctsGameState, MctsTree};
@@ -72,6 +73,16 @@ impl PyGameState {
 
 // --- MctsWorker: batched MCTS for Python-orchestrated training ---
 
+/// Raw terminal outcome — no feature engineering, just the facts.
+#[derive(Clone)]
+struct TerminalResult {
+    victory: bool,
+    hp: u16,
+    max_hp: u16,
+    floor: u8,
+    timed_out: bool,
+}
+
 /// One game session: base state + N root-parallel trees + trajectory recording.
 struct GameSession {
     base_state: StsState,
@@ -80,8 +91,8 @@ struct GameSession {
     trajectory: Vec<(GameState, Option<Action>)>,
     seed: u64,
     turn: u64,
-    /// None = in progress, Some(value) = terminal outcome.
-    result: Option<f64>,
+    /// None = in progress, Some = terminal.
+    result: Option<TerminalResult>,
 }
 
 /// Tracks a pending leaf awaiting a neural network value.
@@ -244,15 +255,24 @@ impl MctsWorker {
 
             // Check terminal or step limit
             let finished = if session.base_state.is_terminal() {
-                let val = session.base_state.terminal_value();
-                session.result = Some(val);
+                let victory = matches!(session.base_state.inner.current_screen(), Screen::GameOver { victory: true });
+                session.result = Some(TerminalResult {
+                    victory,
+                    hp: session.base_state.inner.hp,
+                    max_hp: session.base_state.inner.max_hp,
+                    floor: session.base_state.inner.floor,
+                    timed_out: false,
+                });
                 session.trajectory.push((session.base_state.inner.clone(), None));
                 true
             } else if session.turn >= self.max_steps {
-                // Timed out — treat as defeat at current floor
-                let floor = session.base_state.inner.floor as f64;
-                let progress = (floor / 13.0).min(0.99) * 0.5;
-                session.result = Some(progress);
+                session.result = Some(TerminalResult {
+                    victory: false,
+                    hp: session.base_state.inner.hp,
+                    max_hp: session.base_state.inner.max_hp,
+                    floor: session.base_state.inner.floor,
+                    timed_out: true,
+                });
                 session.trajectory.push((session.base_state.inner.clone(), None));
                 true
             } else {
@@ -280,28 +300,41 @@ impl MctsWorker {
     }
 
     /// Return training data from finished games.
-    /// Returns (states, action_jsons, outcomes) — three parallel lists.
-    /// Each trajectory entry is paired with the game's terminal outcome.
-    fn get_training_data(&mut self) -> PyResult<(Vec<PyGameState>, Vec<Option<String>>, Vec<f64>)> {
+    /// Returns (states, actions, results) where results is a list of dicts
+    /// with raw terminal info (one per game, not per trajectory step).
+    fn get_training_data<'py>(&mut self, py: Python<'py>) -> PyResult<(
+        Vec<PyGameState>,
+        Vec<Option<String>>,
+        Vec<Bound<'py, PyDict>>,
+    )> {
         let mut states = Vec::new();
         let mut actions = Vec::new();
-        let mut outcomes = Vec::new();
+        let mut results = Vec::new();
 
         for session in &self.sessions {
-            let terminal_value = match session.result {
-                Some(v) => v,
+            let result = match &session.result {
+                Some(r) => r,
                 None => continue,
             };
+
+            let result_dict = PyDict::new(py);
+            result_dict.set_item("victory", result.victory)?;
+            result_dict.set_item("hp", result.hp)?;
+            result_dict.set_item("max_hp", result.max_hp)?;
+            result_dict.set_item("floor", result.floor)?;
+            result_dict.set_item("timed_out", result.timed_out)?;
+            result_dict.set_item("num_steps", session.trajectory.len())?;
+            results.push(result_dict);
+
             for (state, action) in &session.trajectory {
                 states.push(PyGameState { inner: state.clone() });
                 actions.push(
                     action.as_ref().map(|a| serde_json::to_string(a).unwrap())
                 );
-                outcomes.push(terminal_value);
             }
         }
 
-        Ok((states, actions, outcomes))
+        Ok((states, actions, results))
     }
 
     /// Count of games still in progress.

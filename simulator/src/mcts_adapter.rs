@@ -93,13 +93,7 @@ impl mcts::GameState for StsState {
     fn terminal_value(&self) -> f64 {
         match self.inner.current_screen() {
             Screen::GameOver { victory: true } => 1.0,
-            Screen::GameOver { victory: false } => {
-                // Progress reward: how far through the act we got (0.0 to <1.0)
-                // Act 1 has 13 floors; normalize to [0, 0.5) so defeat is always < victory
-                let max_floor = 13.0;
-                let progress = (self.inner.floor as f64 / max_floor).min(0.99);
-                progress * 0.5
-            }
+            Screen::GameOver { victory: false } => 0.0,
             _ => 0.5,
         }
     }
