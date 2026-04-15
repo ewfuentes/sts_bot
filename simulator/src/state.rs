@@ -1012,11 +1012,11 @@ impl GameState {
 
                 let screen = match kind {
                     MapNodeKind::Monster | MapNodeKind::Elite | MapNodeKind::Boss => {
-                        let enc_id = encounter_id.as_deref().unwrap_or(match kind {
-                            MapNodeKind::Monster => "UNKNOWN_MONSTER",
-                            MapNodeKind::Elite => "UNKNOWN_ELITE",
-                            MapNodeKind::Boss => "UNKNOWN_BOSS",
-                            _ => unreachable!(),
+                        let enc_id = encounter_id.as_deref().unwrap_or_else(|| {
+                            panic!(
+                                "No encounter assigned for {:?} node at floor {}",
+                                kind, self.floor,
+                            )
                         });
                         let mut combat = Screen::new_combat(enc_id, node_seed);
                         // Populate monsters from encounter_db
