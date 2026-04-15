@@ -386,8 +386,9 @@ impl GameState {
                 queue_triggered(&mut self.effect_queue, triggered);
             }
 
-            // Fire death triggers immediately only for monsters that go straight to Dead.
-            // DeadPendingSummon monsters have their death triggers deferred to execute_monster_turns.
+            // Fire death triggers for monsters that go straight to Dead.
+            // DeadPendingSummon monsters get a queued MonsterDeath effect instead,
+            // which will fire their death triggers and transition them to Dead.
             if result.died && monsters[idx].state == MonsterState::Dead {
                 let triggered = power_db::collect_triggered_effects(
                     power_db::Trigger::MonsterOnDeath,
@@ -395,6 +396,9 @@ impl GameState {
                     target,
                 );
                 queue_triggered(&mut self.effect_queue, triggered);
+            }
+            if result.died && monsters[idx].state == MonsterState::DeadPendingSummon {
+                self.effect_queue.push_back((Effect::MonsterDeath(monster_idx), target));
             }
 
             if result.block_broken {
@@ -436,23 +440,24 @@ impl GameState {
 
     /// Push a TargetSelect screen, or auto-resolve if there's exactly one live monster.
     /// Returns true if the screen was pushed (caller should pause), false if auto-resolved.
+    /// If no live monsters remain, the effects are dropped (nothing to target).
     fn push_target_select_or_resolve(&mut self, reason: TargetReason, effects: Vec<Effect>) -> bool {
-        let single_target = if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
-            let live: Vec<u8> = monsters.iter().enumerate()
+        let live_targets = if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
+            monsters.iter().enumerate()
                 .filter(|(_, m)| m.state == MonsterState::Alive)
                 .map(|(i, _)| i as u8)
-                .collect();
-            if live.len() == 1 { Some(live[0]) } else { None }
+                .collect::<Vec<u8>>()
         } else {
-            None
+            vec![]
         };
 
-        if let Some(idx) = single_target {
-            let target = ResolvedTarget::Monster(idx);
-            if let Some(Screen::Combat { .. }) = find_combat_in(&mut self.screen) {
-                for effect in effects.into_iter().rev() {
-                    self.effect_queue.push_front((effect, target));
-                }
+        if live_targets.is_empty() {
+            // No targets — skip the effects entirely
+            false
+        } else if live_targets.len() == 1 {
+            let target = ResolvedTarget::Monster(live_targets[0]);
+            for effect in effects.into_iter().rev() {
+                self.effect_queue.push_front((effect, target));
             }
             false
         } else {
@@ -2447,6 +2452,22 @@ impl GameState {
                 }
                 return EffectResult::Paused;
             }
+            Effect::MonsterDeath(monster_idx) => {
+                let idx = *monster_idx as usize;
+                if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
+                    if idx < monsters.len() && monsters[idx].state == MonsterState::DeadPendingSummon {
+                        // Fire on-death triggers (SporeCloud, Split, etc.)
+                        let triggered = power_db::collect_triggered_effects(
+                            power_db::Trigger::MonsterOnDeath,
+                            &monsters[idx].powers,
+                            ResolvedTarget::Monster(*monster_idx),
+                        );
+                        queue_triggered(&mut self.effect_queue, triggered);
+                        // Transition to Dead so combat-over check can fire
+                        monsters[idx].state = MonsterState::Dead;
+                    }
+                }
+            }
             Effect::CombatOver => {
                 // Queue end-of-combat relic effects
                 for (effect, target) in crate::relic_db::collect_relic_triggered_effects(
@@ -2513,20 +2534,6 @@ impl GameState {
     }
 
     fn execute_monster_turns(&mut self) {
-        // Process DeadPendingSummon monsters first (fire their death triggers)
-        if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
-            for (i, monster) in monsters.iter().enumerate() {
-                if monster.state == MonsterState::DeadPendingSummon {
-                    let triggered = power_db::collect_triggered_effects(
-                        power_db::Trigger::MonsterOnDeath,
-                        &monster.powers,
-                        ResolvedTarget::Monster(i as u8),
-                    );
-                    queue_triggered(&mut self.effect_queue, triggered);
-                }
-            }
-        }
-        self.drain_effect_queue();
 
         if let Some(Screen::Combat { monsters, player_powers, die_roll, turn, .. }) = find_combat_in(&mut self.screen) {
             let roll = die_roll.expect("die_roll must be set before EndTurn");
@@ -2610,6 +2617,10 @@ impl GameState {
     }
 
     fn finish_combat(&mut self) {
+        // Pop any sub-screens (AutoPlaySelect, TargetSelect, etc.) on top of combat
+        while !self.screen.is_empty() && !matches!(self.current_screen(), Screen::Combat { .. }) {
+            self.pop_screen();
+        }
         if let Screen::Combat { encounter, .. } = self.current_screen() {
             let encounter = encounter.clone();
             let rewards = self.generate_combat_rewards(&encounter);
