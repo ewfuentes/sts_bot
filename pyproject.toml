@@ -11,3 +11,8 @@ sts-training = { workspace = true }
 
 [tool.uv.workspace]
 members = ["simulator", "training"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
