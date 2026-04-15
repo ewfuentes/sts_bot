@@ -225,11 +225,11 @@ pub fn generate_act1_map(rng: &mut Rng) -> (ActMap, usize) {
     let mut event_pool = crate::event_db::act1_event_ids();
     rng.shuffle(&mut event_pool);
 
-    let mut weak_iter = weak_pool.into_iter();
-    let mut strong_iter = strong_pool.into_iter();
-    let mut elite_iter = elite_pool.into_iter();
-    let mut boss_iter = boss_pool.into_iter();
-    let mut event_iter = event_pool.into_iter().cycle(); // cycle in case more ? nodes than events
+    let mut weak_iter = weak_pool.into_iter().cycle();
+    let mut strong_iter = strong_pool.into_iter().cycle();
+    let mut elite_iter = elite_pool.into_iter().cycle();
+    let mut boss_iter = boss_pool.into_iter().cycle();
+    let mut event_iter = event_pool.into_iter().cycle();
     let mut first_monster = true;
 
     for node in &mut nodes {
@@ -240,14 +240,14 @@ pub fn generate_act1_map(rng: &mut Rng) -> (ActMap, usize) {
             MapNodeKind::Monster => {
                 if first_monster {
                     first_monster = false;
-                    weak_iter.next().map(|s| s.to_string())
+                    Some(weak_iter.next().unwrap().to_string())
                 } else {
-                    strong_iter.next().map(|s| s.to_string())
+                    Some(strong_iter.next().unwrap().to_string())
                 }
             }
-            MapNodeKind::Elite => elite_iter.next().map(|s| s.to_string()),
-            MapNodeKind::Boss => boss_iter.next().map(|s| s.to_string()),
-            MapNodeKind::Event => event_iter.next().map(|s| s.to_string()),
+            MapNodeKind::Elite => Some(elite_iter.next().unwrap().to_string()),
+            MapNodeKind::Boss => Some(boss_iter.next().unwrap().to_string()),
+            MapNodeKind::Event => Some(event_iter.next().unwrap().to_string()),
             _ => None,
         };
     }
