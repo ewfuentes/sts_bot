@@ -198,6 +198,46 @@ impl MctsWorker {
         leaf_states
     }
 
+    /// Run random rollouts for all active games, parallelized across trees.
+    /// Does num_iterations iterations per tree entirely in Rust.
+    fn run_random_rollouts(&mut self, num_iterations: usize) {
+        use rayon::prelude::*;
+
+        let exploration_constant = self.exploration_constant;
+
+        // Collect mutable refs to all (tree, seed) pairs for active games
+        let tree_tasks: Vec<_> = self.sessions.iter_mut()
+            .filter(|s| s.result.is_none())
+            .flat_map(|session| {
+                let seed = session.seed;
+                let turn = session.turn;
+                session.roots.iter_mut().enumerate().map(move |(root_idx, tree)| {
+                    (tree, seed.wrapping_add(root_idx as u64).wrapping_add(turn * 1000))
+                })
+            })
+            .collect();
+
+        tree_tasks.into_par_iter().for_each(|(tree, rng_seed)| {
+            use crate::mcts_adapter::StsRandomEvaluator;
+            use mcts::Evaluator;
+            use rand::SeedableRng;
+
+            let evaluator = StsRandomEvaluator;
+            let mut rng = rand::rngs::SmallRng::seed_from_u64(rng_seed);
+
+            for _ in 0..num_iterations {
+                let leaf_idx = tree.select_and_expand(exploration_constant);
+                let leaf_node = &tree.nodes[leaf_idx];
+                let val = if leaf_node.state.is_terminal() {
+                    leaf_node.state.terminal_value()
+                } else {
+                    evaluator.evaluate(&leaf_node.state, &mut rng)
+                };
+                tree.backprop(leaf_idx, val);
+            }
+        });
+    }
+
     /// Backprop neural network values into pending leaves.
     fn backprop(&mut self, values: Vec<f64>) -> PyResult<()> {
         if values.len() != self.pending_leaves.len() {
@@ -241,7 +281,23 @@ impl MctsWorker {
             let (_, (visits, best_action)) = aggregated
                 .iter()
                 .max_by_key(|(_, (v, _))| *v)
-                .expect("no actions aggregated");
+                .unwrap_or_else(|| {
+                    let screen = session.base_state.inner.current_screen();
+                    let actions = session.base_state.inner.available_actions();
+                    let state_json = serde_json::to_string(&session.base_state.inner).unwrap_or_default();
+                    panic!(
+                        "no actions aggregated in step_games\n\
+                         screen: {:?}\n\
+                         available_actions: {:?}\n\
+                         turn: {}, seed: {}\n\
+                         state_json: {}",
+                        std::mem::discriminant(screen),
+                        actions,
+                        session.turn,
+                        session.seed,
+                        state_json,
+                    );
+                });
             let best_action = best_action.clone();
             let best_visits = *visits;
 
@@ -266,6 +322,11 @@ impl MctsWorker {
                 session.trajectory.push((session.base_state.inner.clone(), None));
                 true
             } else if session.turn >= self.max_steps {
+                eprintln!(
+                    "TIMEOUT: seed={}, steps={}, floor={}, hp={}/{}",
+                    session.seed, session.turn, session.base_state.inner.floor,
+                    session.base_state.inner.hp, session.base_state.inner.max_hp,
+                );
                 session.result = Some(TerminalResult {
                     victory: false,
                     hp: session.base_state.inner.hp,
@@ -343,9 +404,214 @@ impl MctsWorker {
     }
 }
 
+// --- Batch token extraction for fast featurization ---
+
+/// Pre-extracted token data for a batch of game states.
+/// All variable-length fields are padded to the max length in the batch.
+/// Padding uses 0 for indices and 0.0 for scalars.
+#[pyclass]
+#[derive(Clone)]
+struct TokenData {
+    /// Player scalars: (batch, 4) — [hp, max_hp, gold, floor]
+    #[pyo3(get)]
+    player_scalars: Vec<Vec<f32>>,
+    /// Whether each state is in combat: (batch,)
+    #[pyo3(get)]
+    in_combat: Vec<bool>,
+    /// Combat scalars: (batch, 4) — [block, energy, die_roll, turn]. 0 if not in combat.
+    #[pyo3(get)]
+    combat_scalars: Vec<Vec<f32>>,
+    /// Deck card ID indices: (batch, max_deck). Padded with 0.
+    #[pyo3(get)]
+    deck_card_indices: Vec<Vec<u32>>,
+    /// Deck lengths per state: (batch,)
+    #[pyo3(get)]
+    deck_lengths: Vec<u32>,
+    /// Card pile card ID indices: (batch, max_pile_total). Padded with 0.
+    #[pyo3(get)]
+    pile_card_indices: Vec<Vec<u32>>,
+    /// Card pile type indices (0=hand, 1=draw, 2=discard, 3=exhaust): (batch, max_pile_total)
+    #[pyo3(get)]
+    pile_type_indices: Vec<Vec<u32>>,
+    /// Card pile total lengths per state: (batch,)
+    #[pyo3(get)]
+    pile_lengths: Vec<u32>,
+    /// Number of alive monsters per state: (batch,)
+    #[pyo3(get)]
+    monster_counts: Vec<u32>,
+    /// Monster ID indices: (batch, max_monsters). Padded with 0.
+    #[pyo3(get)]
+    monster_id_indices: Vec<Vec<u32>>,
+    /// Monster position indices (0-3): (batch, max_monsters). Padded with 0.
+    #[pyo3(get)]
+    monster_position_indices: Vec<Vec<u32>>,
+    /// Monster scalars: (batch, max_monsters, 4) — [hp, max_hp, block, damage]. Padded with 0.
+    #[pyo3(get)]
+    monster_scalars: Vec<Vec<Vec<f32>>>,
+}
+
+/// Extract token data from a batch of GameStates.
+/// card_ids and monster_ids define the index mapping (must match the embedding tables).
+#[pyfunction]
+fn extract_token_data(
+    states: Vec<PyRef<PyGameState>>,
+    card_ids: Vec<String>,
+    monster_ids: Vec<String>,
+) -> PyResult<TokenData> {
+    use std::collections::HashMap;
+
+    let card_id_map: HashMap<&str, u32> = card_ids.iter().enumerate()
+        .map(|(i, s)| (s.as_str(), i as u32)).collect();
+    let monster_id_map: HashMap<&str, u32> = monster_ids.iter().enumerate()
+        .map(|(i, s)| (s.as_str(), i as u32)).collect();
+
+    let batch = states.len();
+    let max_monsters = 4usize;
+
+    let mut player_scalars = Vec::with_capacity(batch);
+    let mut in_combat = Vec::with_capacity(batch);
+    let mut combat_scalars = Vec::with_capacity(batch);
+    let mut deck_cards: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut pile_cards: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut pile_types: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut monster_counts = Vec::with_capacity(batch);
+    let mut monster_ids_out: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut monster_positions: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut monster_scalar_out: Vec<Vec<Vec<f32>>> = Vec::with_capacity(batch);
+
+    for state_ref in &states {
+        let s = &state_ref.inner;
+
+        // Player scalars
+        player_scalars.push(vec![s.hp as f32, s.max_hp as f32, s.gold as f32, s.floor as f32]);
+
+        // Deck
+        let mut d = Vec::with_capacity(s.deck.len());
+        for card in &s.deck {
+            let idx = card_id_map.get(card.id.as_str()).copied()
+                .ok_or_else(|| PyValueError::new_err(format!("Unknown card ID: {}", card.id)))?;
+            d.push(idx);
+        }
+        deck_cards.push(d);
+
+        // Screen-dependent data
+        if let Screen::Combat {
+            player_block, player_energy, die_roll, turn,
+            hand, draw_pile, discard_pile, exhaust_pile,
+            monsters, ..
+        } = s.current_screen() {
+            in_combat.push(true);
+            combat_scalars.push(vec![
+                *player_block as f32,
+                *player_energy as f32,
+                die_roll.unwrap_or(0) as f32,
+                *turn as f32,
+            ]);
+
+            // Card piles: hand=0, draw=1, discard=2, exhaust=3
+            let mut pc = Vec::new();
+            let mut pt = Vec::new();
+            for (pile, type_idx) in [
+                (hand.iter().map(|hc| &hc.card).collect::<Vec<_>>(), 0u32),
+                (draw_pile.iter().collect::<Vec<_>>(), 1),
+                (discard_pile.iter().collect::<Vec<_>>(), 2),
+                (exhaust_pile.iter().collect::<Vec<_>>(), 3),
+            ] {
+                for card in pile {
+                    let idx = card_id_map.get(card.id.as_str()).copied()
+                        .ok_or_else(|| PyValueError::new_err(format!("Unknown card ID: {}", card.id)))?;
+                    pc.push(idx);
+                    pt.push(type_idx);
+                }
+            }
+            pile_cards.push(pc);
+            pile_types.push(pt);
+
+            // Monsters
+            let mut m_ids = Vec::new();
+            let mut m_pos = Vec::new();
+            let mut m_scalars = Vec::new();
+            for (m_idx, m) in monsters.iter().enumerate().take(max_monsters) {
+                if m.state != crate::types::MonsterState::Alive {
+                    continue;
+                }
+                let mid = monster_id_map.get(m.id.as_str()).copied()
+                    .ok_or_else(|| PyValueError::new_err(format!("Unknown monster ID: {}", m.id)))?;
+                m_ids.push(mid);
+                m_pos.push(m_idx as u32);
+                m_scalars.push(vec![
+                    m.hp as f32,
+                    m.max_hp as f32,
+                    m.block as f32,
+                    m.damage.unwrap_or(0) as f32,
+                ]);
+            }
+            monster_counts.push(m_ids.len() as u32);
+            monster_ids_out.push(m_ids);
+            monster_positions.push(m_pos);
+            monster_scalar_out.push(m_scalars);
+        } else {
+            in_combat.push(false);
+            combat_scalars.push(vec![0.0, 0.0, 0.0, 0.0]);
+            pile_cards.push(Vec::new());
+            pile_types.push(Vec::new());
+            monster_counts.push(0);
+            monster_ids_out.push(Vec::new());
+            monster_positions.push(Vec::new());
+            monster_scalar_out.push(Vec::new());
+        }
+    }
+
+    // Pad variable-length fields
+    let max_deck = deck_cards.iter().map(|d| d.len()).max().unwrap_or(0);
+    let max_pile = pile_cards.iter().map(|p| p.len()).max().unwrap_or(0);
+    let max_m = monster_ids_out.iter().map(|m| m.len()).max().unwrap_or(0);
+
+    let deck_lengths: Vec<u32> = deck_cards.iter().map(|d| d.len() as u32).collect();
+    let pile_lengths: Vec<u32> = pile_cards.iter().map(|p| p.len() as u32).collect();
+
+    for d in &mut deck_cards { d.resize(max_deck, 0); }
+    for p in &mut pile_cards { p.resize(max_pile, 0); }
+    for p in &mut pile_types { p.resize(max_pile, 0); }
+    for m in &mut monster_ids_out { m.resize(max_m, 0); }
+    for m in &mut monster_positions { m.resize(max_m, 0); }
+    for m in &mut monster_scalar_out { m.resize(max_m, vec![0.0, 0.0, 0.0, 0.0]); }
+
+    Ok(TokenData {
+        player_scalars,
+        in_combat,
+        combat_scalars,
+        deck_card_indices: deck_cards,
+        deck_lengths,
+        pile_card_indices: pile_cards,
+        pile_type_indices: pile_types,
+        pile_lengths,
+        monster_counts,
+        monster_id_indices: monster_ids_out,
+        monster_position_indices: monster_positions,
+        monster_scalars: monster_scalar_out,
+    })
+}
+
+/// Return a sorted list of all known card IDs.
+#[pyfunction]
+fn all_card_ids() -> Vec<String> {
+    crate::card_db::all_card_ids().into_iter().map(|s| s.to_string()).collect()
+}
+
+/// Return a sorted list of all known monster IDs.
+#[pyfunction]
+fn all_monster_ids() -> Vec<String> {
+    crate::monster_db::all_monster_ids().into_iter().map(|s| s.to_string()).collect()
+}
+
 #[pymodule]
 pub fn sts_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGameState>()?;
     m.add_class::<MctsWorker>()?;
+    m.add_class::<TokenData>()?;
+    m.add_function(wrap_pyfunction!(all_card_ids, m)?)?;
+    m.add_function(wrap_pyfunction!(all_monster_ids, m)?)?;
+    m.add_function(wrap_pyfunction!(extract_token_data, m)?)?;
     Ok(())
 }

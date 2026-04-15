@@ -222,6 +222,13 @@ pub fn lookup(id: &str) -> Option<&'static CardInfo> {
     CARD_DB.get(id)
 }
 
+/// Return a sorted list of all known card IDs.
+pub fn all_card_ids() -> Vec<&'static str> {
+    let mut ids: Vec<&str> = CARD_DB.keys().copied().collect();
+    ids.sort();
+    ids
+}
+
 // ── Ironclad cards ──────────────────────────────────────────────────────
 
 use Effect::*;

@@ -597,6 +597,13 @@ pub fn lookup(id: &str) -> Option<&'static MonsterInfo> {
     MONSTERS.iter().find(|m| m.id == id)
 }
 
+/// Return a sorted list of all known monster IDs.
+pub fn all_monster_ids() -> Vec<&'static str> {
+    let mut ids: Vec<&str> = MONSTERS.iter().map(|m| m.id).collect();
+    ids.sort();
+    ids
+}
+
 /// Determine the next move index based on the monster's pattern and die roll.
 /// For StateMachine, this returns the *next state* (not the move table index).
 /// Use `resolve_move_index` to get the actual move table index from a state.
