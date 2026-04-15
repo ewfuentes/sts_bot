@@ -91,12 +91,18 @@ impl mcts::GameState for StsState {
     }
 
     fn terminal_value(&self) -> f64 {
-        match self.inner.current_screen() {
-            Screen::GameOver { victory: true } => 1.0,
-            Screen::GameOver { victory: false } => 0.0,
-            _ => 0.5,
-        }
+        progress_value(&self.inner)
     }
+}
+
+/// Value heuristic: floor + hp/max_hp.
+fn progress_value(state: &StsGameState) -> f64 {
+    let hp_fraction = if state.max_hp > 0 {
+        state.hp as f64 / state.max_hp as f64
+    } else {
+        0.0
+    };
+    state.floor as f64 + hp_fraction
 }
 
 /// Random rollout evaluator for StS combat.
@@ -116,7 +122,7 @@ impl mcts::Evaluator<StsState> for StsRandomEvaluator {
             sim.apply(&actions[idx]);
             steps += 1;
             if steps > 2000 {
-                return 0.5;
+                return progress_value(&sim.inner);
             }
         }
         sim.terminal_value()
