@@ -193,6 +193,9 @@ pub enum Effect {
     /// Pull the last 3 drawn cards from hand into an AutoPlaySelect screen.
     /// Queued after DrawOneCard effects by DistilledChaos.
     CollectForAutoPlay,
+    /// Fire a monster's on-death triggers (e.g. SporeCloud, Split) and
+    /// transition it to Dead. Queued when any monster reaches 0 HP.
+    MonsterDeath(u8),
     Custom(&'static str),
 }
 
