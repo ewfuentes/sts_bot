@@ -1,31 +1,33 @@
-"""Ring buffer for training data."""
+"""Ring buffer for training data, storing GameState objects and scalar targets."""
 
-import torch
+import random
 
 
 class ReplayBuffer:
-    def __init__(self, capacity: int, feature_dim: int):
+    def __init__(self, capacity: int):
         self.capacity = capacity
-        self.features = torch.zeros(capacity, feature_dim)
-        self.values = torch.zeros(capacity)
-        self.size = 0
+        self.states: list = []
+        self.targets: list[float] = []
         self.pos = 0
 
-    def add_batch(self, features: torch.Tensor, values: torch.Tensor):
-        """Add a batch of (features, values) to the buffer."""
-        n = features.shape[0]
-        if n == 0:
-            return
-        for i in range(n):
-            self.features[self.pos] = features[i]
-            self.values[self.pos] = values[i]
-            self.pos = (self.pos + 1) % self.capacity
-            self.size = min(self.size + 1, self.capacity)
+    def add(self, state, target: float):
+        if len(self.states) < self.capacity:
+            self.states.append(state)
+            self.targets.append(target)
+        else:
+            self.states[self.pos] = state
+            self.targets[self.pos] = target
+        self.pos = (self.pos + 1) % self.capacity
 
-    def sample(self, batch_size: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """Sample a random batch."""
-        indices = torch.randint(0, self.size, (min(batch_size, self.size),))
-        return self.features[indices], self.values[indices]
+    def add_batch(self, states: list, targets: list[float]):
+        for s, t in zip(states, targets):
+            self.add(s, t)
+
+    def sample(self, batch_size: int) -> tuple[list, list[float]]:
+        """Sample a random batch. Returns (states, targets)."""
+        n = min(batch_size, len(self))
+        indices = random.sample(range(len(self)), n)
+        return [self.states[i] for i in indices], [self.targets[i] for i in indices]
 
     def __len__(self) -> int:
-        return self.size
+        return len(self.states)
