@@ -67,7 +67,7 @@ fn replay_game(seed: u64, num_roots: usize, iterations_per_step: usize, max_step
             }
         }
 
-        let (_, (visits, best_action)) = aggregated
+        let (_, (_visits, best_action)) = aggregated
             .iter()
             .max_by_key(|(_, (v, _))| *v)
             .expect("no actions aggregated");
