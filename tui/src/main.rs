@@ -10,6 +10,8 @@ use ratatui::{
 };
 use sts_simulator::{Action, GameState, MapChoice, MapNodeKind, Screen};
 
+mod model_eval;
+
 struct App {
     state: GameState,
     actions: Vec<Action>,
@@ -17,20 +19,50 @@ struct App {
     log: Vec<String>,
     /// Which screen in the stack to display (0 = bottom, len-1 = top)
     view_screen: usize,
+    evaluator: Option<model_eval::ModelEvaluator>,
+    action_values: Vec<(f64, f64)>,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(model_path: Option<&str>) -> Self {
         let state = make_initial_state();
         let actions = state.available_actions();
         let view_screen = state.screen.len().saturating_sub(1);
-        App {
+
+        let evaluator = model_path.map(|path| {
+            eprintln!("Loading model from {}...", path);
+            model_eval::ModelEvaluator::load(path).expect("Failed to load model")
+        });
+
+        let mut app = App {
             state,
             actions,
             selected: 0,
             log: vec!["Run started. Determinized with seed 42.".into()],
             view_screen,
-        }
+            evaluator,
+            action_values: vec![],
+        };
+        app.update_action_values();
+        app
+    }
+
+    fn update_action_values(&mut self) {
+        self.action_values = if let Some(eval) = &self.evaluator {
+            let mut states: Vec<GameState> = Vec::with_capacity(self.actions.len());
+            for action in &self.actions {
+                let mut s = self.state.clone();
+                s.apply(action);
+                states.push(s);
+            }
+            if states.is_empty() {
+                vec![]
+            } else {
+                eval.evaluate_batch(&states)
+            }
+        } else {
+            vec![]
+        };
     }
 
     fn select_action(&mut self) {
@@ -51,6 +83,7 @@ impl App {
         self.actions = self.state.available_actions();
         self.selected = 0;
         self.view_screen = self.state.screen.len().saturating_sub(1);
+        self.update_action_values();
     }
 }
 
@@ -79,7 +112,7 @@ fn make_initial_state() -> GameState {
             {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
             {"id": "BGDefend_R", "name": "Defend", "cost": 1, "type": "SKILL", "upgraded": false},
             {"id": "BGBash", "name": "Bash", "cost": 2, "type": "ATTACK", "upgraded": false},
-            {"id": "BGAscendersBane", "name": "Ascender's Bane", "cost": -2, "type": "CURSE", "upgraded": false},
+
         ],
         "relics": [
             {"id": "BoardGame:BurningBlood", "name": "Burning Blood", "counter": -1},
@@ -102,14 +135,19 @@ fn make_initial_state() -> GameState {
 }
 
 fn main() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let model_path = args.iter()
+        .position(|a| a == "--model")
+        .and_then(|i| args.get(i + 1).cloned());
+
     let mut terminal = ratatui::init();
-    let result = run(&mut terminal);
+    let result = run(&mut terminal, model_path.as_deref());
     ratatui::restore();
     result
 }
 
-fn run(terminal: &mut DefaultTerminal) -> io::Result<()> {
-    let mut app = App::new();
+fn run(terminal: &mut DefaultTerminal, model_path: Option<&str>) -> io::Result<()> {
+    let mut app = App::new(model_path);
 
     loop {
         terminal.draw(|frame| draw(frame, &app))?;
@@ -181,7 +219,16 @@ fn draw(frame: &mut Frame, app: &App) {
                 Style::default()
             };
             let prefix = if i == app.selected { "▸ " } else { "  " };
-            ListItem::new(format!("{}{}", prefix, format_action(action, &app.state))).style(style)
+            let action_str = format_action(action, &app.state);
+
+            let label = if let Some(&(mean, log_var)) = app.action_values.get(i) {
+                let std = (log_var / 2.0).exp();
+                format!("{}{} [{:.2} ± {:.2}]", prefix, action_str, mean, std)
+            } else {
+                format!("{}{}", prefix, action_str)
+            };
+
+            ListItem::new(label).style(style)
         })
         .collect();
 

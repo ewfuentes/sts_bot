@@ -686,6 +686,7 @@ name = "sts_tui"
 version = "0.1.0"
 dependencies = [
  "crossterm",
+ "pyo3",
  "ratatui",
  "serde_json",
  "sts_simulator",
