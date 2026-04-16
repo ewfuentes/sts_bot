@@ -386,18 +386,7 @@ impl GameState {
                 queue_triggered(&mut self.effect_queue, triggered);
             }
 
-            // Fire death triggers for monsters that go straight to Dead.
-            // DeadPendingSummon monsters get a queued MonsterDeath effect instead,
-            // which will fire their death triggers and transition them to Dead.
-            if result.died && monsters[idx].state == MonsterState::Dead {
-                let triggered = power_db::collect_triggered_effects(
-                    power_db::Trigger::MonsterOnDeath,
-                    &monsters[idx].powers,
-                    target,
-                );
-                queue_triggered(&mut self.effect_queue, triggered);
-            }
-            if result.died && monsters[idx].state == MonsterState::DeadPendingSummon {
+            if result.died {
                 self.effect_queue.push_back((Effect::MonsterDeath(monster_idx), target));
             }
 
@@ -2455,7 +2444,7 @@ impl GameState {
             Effect::MonsterDeath(monster_idx) => {
                 let idx = *monster_idx as usize;
                 if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
-                    if idx < monsters.len() && monsters[idx].state == MonsterState::DeadPendingSummon {
+                    if idx < monsters.len() && monsters[idx].state != MonsterState::Alive {
                         // Fire on-death triggers (SporeCloud, Split, etc.)
                         let triggered = power_db::collect_triggered_effects(
                             power_db::Trigger::MonsterOnDeath,
@@ -2463,7 +2452,6 @@ impl GameState {
                             ResolvedTarget::Monster(*monster_idx),
                         );
                         queue_triggered(&mut self.effect_queue, triggered);
-                        // Transition to Dead so combat-over check can fire
                         monsters[idx].state = MonsterState::Dead;
                     }
                 }
@@ -2534,6 +2522,15 @@ impl GameState {
     }
 
     fn execute_monster_turns(&mut self) {
+        if let Some(Screen::Combat { monsters, .. }) = find_combat_in(&mut self.screen) {
+            for monster in monsters.iter() {
+                assert!(
+                    monster.state != MonsterState::DeadPendingSummon,
+                    "DeadPendingSummon monster {} should have been resolved before execute_monster_turns",
+                    monster.id,
+                );
+            }
+        }
 
         if let Some(Screen::Combat { monsters, player_powers, die_roll, turn, .. }) = find_combat_in(&mut self.screen) {
             let roll = die_roll.expect("die_roll must be set before EndTurn");
