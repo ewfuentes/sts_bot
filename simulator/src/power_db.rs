@@ -399,3 +399,16 @@ fn substitute_amount(effect: &Effect, power: &crate::types::Power) -> Effect {
         other => other.clone(),
     }
 }
+
+/// Return a sorted list of all known power IDs.
+pub fn all_power_ids() -> Vec<&'static str> {
+    let mut ids: Vec<&str> = POWERS.iter().map(|p| p.id).collect();
+    // Powers used in code but not in the POWERS table
+    for extra in &["BGWeakened", "LoseStrength"] {
+        if !ids.contains(extra) {
+            ids.push(extra);
+        }
+    }
+    ids.sort();
+    ids
+}

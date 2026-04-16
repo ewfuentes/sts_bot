@@ -445,23 +445,55 @@ struct TokenData {
     /// Monster position indices (0-3): (batch, max_monsters). Padded with 0.
     #[pyo3(get)]
     monster_position_indices: Vec<Vec<u32>>,
-    /// Monster scalars: (batch, max_monsters, 4) — [hp, max_hp, block, damage]. Padded with 0.
+    /// Monster scalars: (batch, max_monsters, 5) — [hp, max_hp, block, damage, hits]. Padded with 0.
     #[pyo3(get)]
     monster_scalars: Vec<Vec<Vec<f32>>>,
+    /// Monster intent indices: (batch, max_monsters). 0=UNKNOWN, 1=ATTACK, 2=ATTACK_BUFF, 3=BUFF.
+    #[pyo3(get)]
+    monster_intent_indices: Vec<Vec<u32>>,
+    /// Player power ID indices: (batch, max_player_powers). Padded with 0.
+    #[pyo3(get)]
+    player_power_indices: Vec<Vec<u32>>,
+    /// Player power amounts: (batch, max_player_powers). Padded with 0.
+    #[pyo3(get)]
+    player_power_amounts: Vec<Vec<f32>>,
+    /// Player power counts: (batch,)
+    #[pyo3(get)]
+    player_power_counts: Vec<u32>,
+    /// Monster power ID indices: (batch, max_total_monster_powers). Padded with 0.
+    /// Flattened across all alive monsters per state.
+    #[pyo3(get)]
+    monster_power_indices: Vec<Vec<u32>>,
+    /// Monster power amounts: (batch, max_total_monster_powers). Padded with 0.
+    #[pyo3(get)]
+    monster_power_amounts: Vec<Vec<f32>>,
+    /// Monster position for each power token: (batch, max_total_monster_powers). Padded with 0.
+    #[pyo3(get)]
+    monster_power_positions: Vec<Vec<u32>>,
+    /// Monster power total counts: (batch,)
+    #[pyo3(get)]
+    monster_power_counts: Vec<u32>,
 }
 
 /// Extract token data from a batch of GameStates.
-/// card_ids and monster_ids define the index mapping (must match the embedding tables).
+/// card_ids, monster_ids, and power_ids define the index mappings (must match the embedding tables).
 #[pyfunction]
 fn extract_token_data(
     states: Vec<PyRef<PyGameState>>,
     card_ids: Vec<String>,
     monster_ids: Vec<String>,
+    power_ids: Vec<String>,
 ) -> PyResult<TokenData> {
     use std::collections::HashMap;
 
     let card_id_map: HashMap<&str, u32> = card_ids.iter().enumerate()
         .map(|(i, s)| (s.as_str(), i as u32)).collect();
+    let num_powers = power_ids.len();
+    let power_id_map: HashMap<&str, u32> = power_ids.iter().enumerate()
+        .map(|(i, s)| (s.as_str(), i as u32)).collect();
+    let intent_map: HashMap<&str, u32> = [
+        ("UNKNOWN", 0), ("ATTACK", 1), ("ATTACK_BUFF", 2), ("BUFF", 3),
+    ].into_iter().collect();
     let monster_id_map: HashMap<&str, u32> = monster_ids.iter().enumerate()
         .map(|(i, s)| (s.as_str(), i as u32)).collect();
 
@@ -478,6 +510,12 @@ fn extract_token_data(
     let mut monster_ids_out: Vec<Vec<u32>> = Vec::with_capacity(batch);
     let mut monster_positions: Vec<Vec<u32>> = Vec::with_capacity(batch);
     let mut monster_scalar_out: Vec<Vec<Vec<f32>>> = Vec::with_capacity(batch);
+    let mut monster_intents: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut player_power_ids: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut player_power_amts: Vec<Vec<f32>> = Vec::with_capacity(batch);
+    let mut monster_power_ids: Vec<Vec<u32>> = Vec::with_capacity(batch);
+    let mut monster_power_amts: Vec<Vec<f32>> = Vec::with_capacity(batch);
+    let mut monster_power_pos: Vec<Vec<u32>> = Vec::with_capacity(batch);
 
     for state_ref in &states {
         let s = &state_ref.inner;
@@ -498,7 +536,7 @@ fn extract_token_data(
         if let Screen::Combat {
             player_block, player_energy, die_roll, turn,
             hand, draw_pile, discard_pile, exhaust_pile,
-            monsters, ..
+            monsters, player_powers, ..
         } = s.current_screen() {
             in_combat.push(true);
             combat_scalars.push(vec![
@@ -531,6 +569,7 @@ fn extract_token_data(
             let mut m_ids = Vec::new();
             let mut m_pos = Vec::new();
             let mut m_scalars = Vec::new();
+            let mut m_intents = Vec::new();
             for (m_idx, m) in monsters.iter().enumerate().take(max_monsters) {
                 if m.state != crate::types::MonsterState::Alive {
                     continue;
@@ -544,12 +583,47 @@ fn extract_token_data(
                     m.max_hp as f32,
                     m.block as f32,
                     m.damage.unwrap_or(0) as f32,
+                    m.hits as f32,
                 ]);
+                m_intents.push(*intent_map.get(m.intent.as_str()).unwrap_or(&0));
             }
             monster_counts.push(m_ids.len() as u32);
             monster_ids_out.push(m_ids);
             monster_positions.push(m_pos);
             monster_scalar_out.push(m_scalars);
+            monster_intents.push(m_intents);
+
+            // Monster powers: sparse (id, amount, position) per power
+            let mut mp_ids = Vec::new();
+            let mut mp_amts = Vec::new();
+            let mut mp_pos = Vec::new();
+            for (m_idx, m) in monsters.iter().enumerate().take(max_monsters) {
+                if m.state != crate::types::MonsterState::Alive {
+                    continue;
+                }
+                for p in &m.powers {
+                    if let Some(&idx) = power_id_map.get(p.id.as_str()) {
+                        mp_ids.push(idx);
+                        mp_amts.push(p.amount as f32);
+                        mp_pos.push(m_idx as u32);
+                    }
+                }
+            }
+            monster_power_ids.push(mp_ids);
+            monster_power_amts.push(mp_amts);
+            monster_power_pos.push(mp_pos);
+
+            // Player powers: sparse (id, amount) per power
+            let mut pp_ids = Vec::new();
+            let mut pp_amts = Vec::new();
+            for p in player_powers {
+                if let Some(&idx) = power_id_map.get(p.id.as_str()) {
+                    pp_ids.push(idx);
+                    pp_amts.push(p.amount as f32);
+                }
+            }
+            player_power_ids.push(pp_ids);
+            player_power_amts.push(pp_amts);
         } else {
             in_combat.push(false);
             combat_scalars.push(vec![0.0, 0.0, 0.0, 0.0]);
@@ -559,6 +633,12 @@ fn extract_token_data(
             monster_ids_out.push(Vec::new());
             monster_positions.push(Vec::new());
             monster_scalar_out.push(Vec::new());
+            monster_intents.push(Vec::new());
+            monster_power_ids.push(Vec::new());
+            monster_power_amts.push(Vec::new());
+            monster_power_pos.push(Vec::new());
+            player_power_ids.push(Vec::new());
+            player_power_amts.push(Vec::new());
         }
     }
 
@@ -575,7 +655,19 @@ fn extract_token_data(
     for p in &mut pile_types { p.resize(max_pile, 0); }
     for m in &mut monster_ids_out { m.resize(max_m, 0); }
     for m in &mut monster_positions { m.resize(max_m, 0); }
-    for m in &mut monster_scalar_out { m.resize(max_m, vec![0.0, 0.0, 0.0, 0.0]); }
+    for m in &mut monster_scalar_out { m.resize(max_m, vec![0.0; 5]); }
+    for m in &mut monster_intents { m.resize(max_m, 0); }
+
+    let player_power_counts: Vec<u32> = player_power_ids.iter().map(|v| v.len() as u32).collect();
+    let max_pp = player_power_ids.iter().map(|v| v.len()).max().unwrap_or(0);
+    for v in &mut player_power_ids { v.resize(max_pp, 0); }
+    for v in &mut player_power_amts { v.resize(max_pp, 0.0); }
+
+    let monster_power_counts: Vec<u32> = monster_power_ids.iter().map(|v| v.len() as u32).collect();
+    let max_mp = monster_power_ids.iter().map(|v| v.len()).max().unwrap_or(0);
+    for v in &mut monster_power_ids { v.resize(max_mp, 0); }
+    for v in &mut monster_power_amts { v.resize(max_mp, 0.0); }
+    for v in &mut monster_power_pos { v.resize(max_mp, 0); }
 
     Ok(TokenData {
         player_scalars,
@@ -590,6 +682,14 @@ fn extract_token_data(
         monster_id_indices: monster_ids_out,
         monster_position_indices: monster_positions,
         monster_scalars: monster_scalar_out,
+        monster_intent_indices: monster_intents,
+        player_power_indices: player_power_ids,
+        player_power_amounts: player_power_amts,
+        player_power_counts,
+        monster_power_indices: monster_power_ids,
+        monster_power_amounts: monster_power_amts,
+        monster_power_positions: monster_power_pos,
+        monster_power_counts,
     })
 }
 
@@ -605,6 +705,12 @@ fn all_monster_ids() -> Vec<String> {
     crate::monster_db::all_monster_ids().into_iter().map(|s| s.to_string()).collect()
 }
 
+/// Return a sorted list of all known power IDs.
+#[pyfunction]
+fn all_power_ids() -> Vec<String> {
+    crate::power_db::all_power_ids().into_iter().map(|s| s.to_string()).collect()
+}
+
 #[pymodule]
 pub fn sts_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyGameState>()?;
@@ -612,6 +718,7 @@ pub fn sts_simulator(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<TokenData>()?;
     m.add_function(wrap_pyfunction!(all_card_ids, m)?)?;
     m.add_function(wrap_pyfunction!(all_monster_ids, m)?)?;
+    m.add_function(wrap_pyfunction!(all_power_ids, m)?)?;
     m.add_function(wrap_pyfunction!(extract_token_data, m)?)?;
     Ok(())
 }
