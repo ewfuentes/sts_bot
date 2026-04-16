@@ -8,7 +8,7 @@ use rand::prelude::*;
 ///
 /// The MCTS algorithm is generic over any game that implements this trait.
 /// `Action` must be `Clone + PartialEq` so the tree can store and compare actions.
-pub trait GameState: Clone {
+pub trait GameState: Clone + fmt::Debug {
     type Action: Clone + PartialEq + fmt::Debug;
 
     /// Return all legal actions from this state.
@@ -183,6 +183,13 @@ impl<S: GameState> MctsTree<S> {
         let mut curr_idx = self.root();
         let mut curr_node = &self.nodes[curr_idx];
         while curr_node.unexpanded_actions.is_empty() && !curr_node.state.is_terminal() {
+            if curr_node.children.is_empty() {
+                panic!(
+                    "select_leaf: non-terminal node has no children and no unexpanded actions.\n\
+                     node_idx={}, visits={}, state={:?}",
+                    curr_idx, curr_node.visits, curr_node.state,
+                );
+            }
             let best_child_idx = curr_node.children.iter().max_by(|&&idx_1, &&idx_2| {
                 let child_1_value = &self.nodes[idx_1].ucb_value(curr_node.visits, exploration_constant);
                 let child_2_value = &self.nodes[idx_2].ucb_value(curr_node.visits, exploration_constant);
@@ -194,7 +201,7 @@ impl<S: GameState> MctsTree<S> {
         }
 
         (curr_idx,
-            if curr_node.state.is_terminal() { None } else { Some(curr_node.unexpanded_actions.first().unwrap().clone()) })
+            if curr_node.state.is_terminal() { None } else { curr_node.unexpanded_actions.first().cloned() })
     }
 
     /// Advance the tree to the child matching the given action.
