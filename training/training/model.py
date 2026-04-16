@@ -63,7 +63,7 @@ class StateEncoder(nn.Module):
 
         COMBAT_SCALAR_FIELDS = ["block", "energy", "die_roll", "turn"]
         self.combat_scalar_fields = COMBAT_SCALAR_FIELDS
-        MONSTER_SCALAR_FIELDS = ["monster_hp", "monster_max_hp", "monster_block", "monster_damage"]
+        MONSTER_SCALAR_FIELDS = ["monster_hp", "monster_max_hp", "monster_block", "monster_damage", "monster_hits"]
         self.monster_scalar_fields = MONSTER_SCALAR_FIELDS
         MAX_MONSTERS = 4
         self.max_monsters = MAX_MONSTERS
@@ -71,8 +71,9 @@ class StateEncoder(nn.Module):
                        + ["deck", "hand", "draw", "discard", "exhaust"]
                        + COMBAT_SCALAR_FIELDS
                        + MONSTER_SCALAR_FIELDS
-                       + ["monster_id"]
-                       + [f"monster_{i}" for i in range(MAX_MONSTERS)])
+                       + ["monster_id", "monster_intent"]
+                       + [f"monster_{i}" for i in range(MAX_MONSTERS)]
+                       + ["player_power", "monster_power"])
         self.idx_from_token_type = {x: i for i, x in enumerate(TOKEN_TYPES)}
         self.token_type_embedding = nn.Embedding(len(TOKEN_TYPES), self.model_dim)
 
@@ -81,6 +82,12 @@ class StateEncoder(nn.Module):
 
         self.idx_from_monster_id = {x: i for i, x in enumerate(sts.all_monster_ids())}
         self.monster_id_embedding = nn.Embedding(len(self.idx_from_monster_id), self.model_dim)
+
+        self.idx_from_power_id = {x: i for i, x in enumerate(sts.all_power_ids())}
+        self.power_id_embedding = nn.Embedding(len(self.idx_from_power_id), self.model_dim)
+
+        # 4 intent types: UNKNOWN=0, ATTACK=1, ATTACK_BUFF=2, BUFF=3
+        self.intent_embedding = nn.Embedding(4, self.model_dim)
 
     @property
     def device(self) -> torch.device:
@@ -189,6 +196,77 @@ class StateEncoder(nn.Module):
 
         return m_tokens, m_mask
 
+    def _featurize_monster_intents(self, td: sts.TokenData, batch: int) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """Monster intents -> 1 token per alive monster, or None if empty."""
+        dev = self.device
+        max_m = max(td.monster_counts) if td.monster_counts else 0
+        if max_m == 0:
+            return None
+
+        intent_idx = torch.tensor(td.monster_intent_indices, dtype=torch.long)  # (batch, max_m)
+        m_pos_idx = torch.tensor(td.monster_position_indices, dtype=torch.long)
+        pos_type_lut = torch.tensor(
+            [self.idx_from_token_type[f"monster_{p}"] for p in range(self.max_monsters)],
+            dtype=torch.long)
+        intent_type_embed = _embed(self.token_type_embedding,
+                                   torch.tensor(self.idx_from_token_type["monster_intent"]))
+
+        tokens = (_embed(self.intent_embedding, intent_idx)
+                  + intent_type_embed
+                  + _embed(self.token_type_embedding, pos_type_lut[m_pos_idx]))
+        mask = torch.ones(batch, int(max_m), dtype=torch.bool, device=dev)
+        for i in range(batch):
+            mask[i, :int(td.monster_counts[i])] = False
+        return tokens, mask
+
+    def _featurize_player_powers(self, td: sts.TokenData, batch: int) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """Player powers -> 1 token per active power. Only present powers are included."""
+        num_freqs = self.model_dim // 2
+        dev = self.device
+        max_pp = max(td.player_power_counts) if td.player_power_counts else 0
+        if max_pp == 0:
+            return None
+
+        power_idx = torch.tensor(td.player_power_indices, dtype=torch.long)  # (batch, max_pp)
+        amounts = torch.tensor(td.player_power_amounts)  # (batch, max_pp)
+        encoded = fourier_encode(amounts, num_freqs).to(dev)  # (batch, max_pp, dim)
+
+        tokens = (encoded
+                  + _embed(self.power_id_embedding, power_idx)
+                  + _embed(self.token_type_embedding,
+                           torch.tensor(self.idx_from_token_type["player_power"])))
+        mask = torch.ones(batch, int(max_pp), dtype=torch.bool, device=dev)
+        for i in range(batch):
+            mask[i, :int(td.player_power_counts[i])] = False
+        return tokens, mask
+
+    def _featurize_monster_powers(self, td: sts.TokenData, batch: int) -> tuple[torch.Tensor, torch.Tensor] | None:
+        """Monster powers -> 1 token per active power per monster. Sparse representation."""
+        num_freqs = self.model_dim // 2
+        dev = self.device
+        max_mp = max(td.monster_power_counts) if td.monster_power_counts else 0
+        if max_mp == 0:
+            return None
+
+        power_idx = torch.tensor(td.monster_power_indices, dtype=torch.long)  # (batch, max_mp)
+        amounts = torch.tensor(td.monster_power_amounts)  # (batch, max_mp)
+        pos_idx = torch.tensor(td.monster_power_positions, dtype=torch.long)  # (batch, max_mp)
+        encoded = fourier_encode(amounts, num_freqs).to(dev)  # (batch, max_mp, dim)
+
+        pos_type_lut = torch.tensor(
+            [self.idx_from_token_type[f"monster_{p}"] for p in range(self.max_monsters)],
+            dtype=torch.long)
+
+        tokens = (encoded
+                  + _embed(self.power_id_embedding, power_idx)
+                  + _embed(self.token_type_embedding, pos_type_lut[pos_idx])
+                  + _embed(self.token_type_embedding,
+                           torch.tensor(self.idx_from_token_type["monster_power"])))
+        mask = torch.ones(batch, int(max_mp), dtype=torch.bool, device=dev)
+        for i in range(batch):
+            mask[i, :int(td.monster_power_counts[i])] = False
+        return tokens, mask
+
     def featurize_game_state(self, states: list[sts.GameState]) -> tuple[torch.Tensor, torch.Tensor]:
         """Extract token features from a batch of game states.
 
@@ -196,7 +274,8 @@ class StateEncoder(nn.Module):
         and mask is (batch, seq_len) with True for padding positions.
         """
         td = sts.extract_token_data(states, list(self.idx_from_card_id.keys()),
-                                    list(self.idx_from_monster_id.keys()))
+                                    list(self.idx_from_monster_id.keys()),
+                                    list(self.idx_from_power_id.keys()))
         batch = len(states)
         all_tokens = []
         all_masks = []
@@ -223,8 +302,26 @@ class StateEncoder(nn.Module):
             all_tokens.append(result[0])
             all_masks.append(result[1])
 
-        # Monsters
+        # Monsters (ID + scalars)
         result = self._featurize_monsters(td, batch)
+        if result is not None:
+            all_tokens.append(result[0])
+            all_masks.append(result[1])
+
+        # Monster intents
+        result = self._featurize_monster_intents(td, batch)
+        if result is not None:
+            all_tokens.append(result[0])
+            all_masks.append(result[1])
+
+        # Player powers
+        result = self._featurize_player_powers(td, batch)
+        if result is not None:
+            all_tokens.append(result[0])
+            all_masks.append(result[1])
+
+        # Monster powers
+        result = self._featurize_monster_powers(td, batch)
         if result is not None:
             all_tokens.append(result[0])
             all_masks.append(result[1])
