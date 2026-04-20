@@ -13,6 +13,7 @@ tui/target/
 
 # Training
 checkpoints/
+runs/
 *.pt
 
 # Logs

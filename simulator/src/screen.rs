@@ -126,7 +126,6 @@ pub enum Screen {
     },
     /// Cards drawn by Distilled Chaos waiting to be played for free.
     /// Player picks one at a time; each is played before the next pick.
-    #[serde(skip)]
     AutoPlaySelect {
         cards: Vec<Card>,
     },

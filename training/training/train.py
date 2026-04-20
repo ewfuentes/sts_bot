@@ -1,9 +1,11 @@
 """Self-play training loop: MCTS with batched neural network leaf evaluation."""
 
 import argparse
+import os
 import time
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 from sts_simulator import MctsWorker
 
@@ -82,15 +84,25 @@ def main():
     parser.add_argument("--buffer-capacity", type=int, default=100_000)
     parser.add_argument("--combat-only", action="store_true", default=False)
     parser.add_argument("--encounter", type=str, default="BoardGame:Jaw Worm (Easy)")
-    parser.add_argument("--checkpoint-dir", type=str, default="checkpoints")
     parser.add_argument("--max-steps", type=int, default=500)
     parser.add_argument("--model-dim", type=int, default=64)
     parser.add_argument("--num-heads", type=int, default=4)
     parser.add_argument("--num-layers", type=int, default=2)
+    parser.add_argument("--runs-dir", type=str, default="runs")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
+
+    # Create a unique run directory with timestamp and key hyperparams
+    timestamp = time.strftime("%Y-%m-%d_%H%M%S")
+    run_name = f"{timestamp}_dim{args.model_dim}_lr{args.lr}"
+    run_dir = os.path.join(args.runs_dir, run_name)
+    checkpoint_dir = os.path.join(run_dir, "checkpoints")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+
+    writer = SummaryWriter(log_dir=run_dir)
+    print(f"Run directory: {run_dir}")
 
     config = StateEncoderConfig(
         model_dim=args.model_dim,
@@ -132,12 +144,26 @@ def main():
 
         # Per-game stats
         if game_results:
+            n = len(game_results)
             wins = sum(1 for r in game_results if r["victory"])
             timed_out = sum(1 for r in game_results if r["timed_out"])
-            avg_floor = sum(r["floor"] for r in game_results) / len(game_results)
-            print(f"  games={len(game_results)}, wins={wins}/{len(game_results)}, "
+            floors = [r["floor"] for r in game_results]
+            avg_floor = sum(floors) / n
+            max_floor = max(floors)
+            avg_hp = sum(r["hp"] for r in game_results) / n
+            avg_steps = sum(r["num_steps"] for r in game_results) / n
+
+            writer.add_scalar("selfplay/win_rate", wins / n, epoch)
+            writer.add_scalar("selfplay/avg_floor", avg_floor, epoch)
+            writer.add_scalar("selfplay/max_floor", max_floor, epoch)
+            writer.add_scalar("selfplay/avg_hp_at_end", avg_hp, epoch)
+            writer.add_scalar("selfplay/avg_steps", avg_steps, epoch)
+            writer.add_scalar("selfplay/timed_out", timed_out, epoch)
+            writer.add_histogram("selfplay/floor_distribution", torch.tensor(floors, dtype=torch.float32), epoch)
+
+            print(f"  games={n}, wins={wins}/{n}, "
                   f"timed_out={timed_out}, avg_floor={avg_floor:.1f}, "
-                  f"floors={[r['floor'] for r in game_results]}")
+                  f"floors={floors}")
 
         selfplay_time = time.time() - t0
 
@@ -165,16 +191,22 @@ def main():
         avg_loss = total_loss / args.train_steps_per_epoch
         train_time = time.time() - t1
 
+        writer.add_scalar("train/loss", avg_loss, epoch)
+        writer.add_scalar("train/buffer_size", len(replay_buffer), epoch)
+        writer.add_scalar("timing/selfplay_s", selfplay_time, epoch)
+        writer.add_scalar("timing/train_s", train_time, epoch)
+        writer.add_scalar("train/trajectory_states", len(states), epoch)
+
         print(f"Epoch {epoch}: {len(states)} states, loss={avg_loss:.4f}, "
               f"buffer={len(replay_buffer)}, selfplay={selfplay_time:.1f}s, train={train_time:.1f}s")
 
         # Checkpoint every 10 epochs
         if (epoch + 1) % 10 == 0:
-            import os
-            os.makedirs(args.checkpoint_dir, exist_ok=True)
-            path = os.path.join(args.checkpoint_dir, f"model_epoch{epoch+1}.pt")
+            path = os.path.join(checkpoint_dir, f"model_epoch{epoch+1}.pt")
             torch.save({"config": config, "state_dict": model.state_dict()}, path)
             print(f"  Saved checkpoint: {path}")
+
+    writer.close()
 
 
 if __name__ == "__main__":
