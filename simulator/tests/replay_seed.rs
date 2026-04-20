@@ -101,7 +101,6 @@ fn replay_game(seed: u64, num_roots: usize, iterations_per_step: usize, max_step
 }
 
 #[test]
-#[ignore] // debug tool — run with: cargo test --release --test replay_seed -- --ignored --nocapture
 fn dump_map_5020() {
     let inner = GameState::new_ironclad_game(5020);
     if let Some(map) = &inner.map {
@@ -112,13 +111,7 @@ fn dump_map_5020() {
 }
 
 #[test]
-#[ignore]
+#[ignore] // slow — run with: cargo test --release --test replay_seed replay_seed_5020 -- --ignored --nocapture
 fn replay_seed_5020() {
     replay_game(5020, 10, 1000, 500);
-}
-
-#[test]
-#[ignore]
-fn replay_seed_560129() {
-    replay_game(560129, 10, 20, 200);
 }
