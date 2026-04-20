@@ -24,8 +24,8 @@ struct App {
 }
 
 impl App {
-    fn new(model_path: Option<&str>) -> Self {
-        let state = make_initial_state();
+    fn new(model_path: Option<&str>, seed: u64) -> Self {
+        let state = make_initial_state(seed);
         let actions = state.available_actions();
         let view_screen = state.screen.len().saturating_sub(1);
 
@@ -38,7 +38,7 @@ impl App {
             state,
             actions,
             selected: 0,
-            log: vec!["Run started. Determinized with seed 42.".into()],
+            log: vec![format!("Run started. Seed {}.", seed)],
             view_screen,
             evaluator,
             action_values: vec![],
@@ -87,8 +87,8 @@ impl App {
     }
 }
 
-fn make_initial_state() -> GameState {
-    let mut rng = sts_simulator::Rng::from_seed(42);
+fn make_initial_state(seed: u64) -> GameState {
+    let mut rng = sts_simulator::Rng::from_seed(seed);
     let (map, start_node) = sts_simulator::dungeon::generate_act1_map(&mut rng);
 
     // Build the initial map choices — the starting node is the only choice
@@ -130,24 +130,31 @@ fn make_initial_state() -> GameState {
     });
     let mut state = GameState::from_json(&json.to_string()).unwrap();
     state.map = Some(map);
-    state.determinize(42);
+    state.determinize(seed);
     state
+}
+
+fn parse_arg(args: &[String], flag: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1).cloned())
 }
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    let model_path = args.iter()
-        .position(|a| a == "--model")
-        .and_then(|i| args.get(i + 1).cloned());
+    let model_path = parse_arg(&args, "--model");
+    let seed: u64 = parse_arg(&args, "--seed")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(42);
 
     let mut terminal = ratatui::init();
-    let result = run(&mut terminal, model_path.as_deref());
+    let result = run(&mut terminal, model_path.as_deref(), seed);
     ratatui::restore();
     result
 }
 
-fn run(terminal: &mut DefaultTerminal, model_path: Option<&str>) -> io::Result<()> {
-    let mut app = App::new(model_path);
+fn run(terminal: &mut DefaultTerminal, model_path: Option<&str>, seed: u64) -> io::Result<()> {
+    let mut app = App::new(model_path, seed);
 
     loop {
         terminal.draw(|frame| draw(frame, &app))?;
