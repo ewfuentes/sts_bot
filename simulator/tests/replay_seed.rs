@@ -111,7 +111,12 @@ fn dump_map_5020() {
 }
 
 #[test]
-#[ignore] // slow — run with: cargo test --release --test replay_seed replay_seed_5020 -- --ignored --nocapture
+#[ignore]
 fn replay_seed_5020() {
     replay_game(5020, 10, 1000, 500);
+}
+
+#[test]
+fn replay_seed_560129() {
+    replay_game(560129, 10, 20, 200);
 }
